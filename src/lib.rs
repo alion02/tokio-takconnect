@@ -7,12 +7,12 @@ use std::{
 
 use futures::{
     stream::{self, SplitSink},
-    SinkExt, StreamExt,
+    Future, FutureExt, SinkExt, StreamExt,
 };
 
 use parking_lot::Mutex;
 use tokio::{
-    spawn,
+    join, spawn,
     sync::{
         mpsc::{unbounded_channel, UnboundedSender},
         oneshot::{channel, Sender},
@@ -22,6 +22,8 @@ use tokio::{
 use tokio_tungstenite::{connect_async, WebSocketStream};
 
 use rand::{distributions::Uniform, prelude::StdRng, Rng, SeedableRng};
+
+use log::{debug, error, info, trace, warn};
 
 pub async fn connect_guest() -> Client {
     connect().await
@@ -38,7 +40,7 @@ async fn connect() -> Client {
         "Guest".to_string(),
         token,
         "unknown",
-        Duration::from_secs(1),
+        Duration::from_millis(2_000),
     )
     .await
 }
@@ -46,11 +48,84 @@ async fn connect() -> Client {
 async fn internal_connect(
     username: String,
     password: String,
-    client: &str,
+    client_name: &str,
     ping_interval: Duration,
 ) -> Client {
-    // // FIXME
-    // let mut rx = Box::pin(rx.filter_map(|item| async { Some(item.unwrap().into_text().unwrap()) }));
+    let (tx, mut rx) = unbounded_channel::<(String, _)>();
+
+    {
+        info!("Establishing WebSocket Secure connnection to Playtak server");
+        let time = Instant::now();
+        let mut stream = connect_async("wss://playtak.com/ws")
+            .await
+            .unwrap()
+            .0
+            .split();
+
+        let queue = Arc::new(Mutex::new(VecDeque::<Sender<PlaytakResponse>>::new()));
+        {
+            let queue = queue.clone();
+            spawn(async move {
+                while let Some((message, tx)) = rx.recv().await {
+                    {
+                        let mut queue = queue.lock();
+                        let backlog = queue.len();
+                        if backlog != 0 {
+                            debug!("Sending a command while awaiting responses to {backlog} previous command(s)");
+                        }
+                        queue.push_back(tx);
+                    }
+                    stream.0.send(message.into()).await.unwrap(); // Is this cancellation safe?
+                }
+            });
+        }
+        spawn(async move {
+            while let Some(Ok(message)) = stream.1.next().await {
+                let message = message.to_text().unwrap().strip_suffix(|_| true).unwrap();
+
+                match message {
+                    "OK" | "NOK" => {
+                        queue
+                            .lock()
+                            .pop_front()
+                            .unwrap()
+                            .send(if message == "OK" {
+                                PlaytakResponse::Ok(())
+                            } else {
+                                PlaytakResponse::Err(())
+                            })
+                            .unwrap();
+                    }
+                    _ => {
+                        info!("Ignoring unknown message \"{message}\"");
+                    }
+                };
+            }
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        spawn(async move {
+            let mut interval = interval(ping_interval);
+            loop {
+                interval.tick().await;
+                let channel = channel();
+                let time = Instant::now();
+                tx.send(("PING".to_string(), channel.0)).unwrap();
+                spawn(async move {
+                    channel.1.await.unwrap().unwrap();
+                    debug!("Ping: {}ms", time.elapsed().as_millis());
+                });
+            }
+        });
+    }
+
+    let client = Client {
+        username,
+        password,
+        tx,
+    };
 
     // {
     //     assert_eq!(
@@ -82,73 +157,30 @@ async fn internal_connect(
     // .await
     // .unwrap();
 
-    let (tx, mut rx) = unbounded_channel::<(String, _)>();
-
-    {
-        let mut stream = connect_async("wss://playtak.com/ws")
-            .await
-            .unwrap()
-            .0
-            .split();
-
-        let queue = Arc::new(Mutex::new(VecDeque::<Sender<PlaytakResponse>>::new()));
-        {
-            let queue = queue.clone();
-            spawn(async move {
-                while let Some((message, tx)) = rx.recv().await {
-                    queue.lock().push_back(tx);
-                    stream.0.send(message.into()).await.unwrap(); // Is this cancellation safe?
-                }
-            });
+    info!(
+        "Logging in as {}",
+        if client.username == "Guest" {
+            "a guest".to_string()
+        } else {
+            format!("\"{}\"", client.username)
         }
-        spawn(async move {
-            while let Some(Ok(message)) = stream.1.next().await {
-                let message = message.to_text().unwrap().strip_suffix(|_| true).unwrap();
+    );
 
-                match message {
-                    "OK" | "NOK" => {
-                        queue
-                            .lock()
-                            .pop_front()
-                            .unwrap()
-                            .send(if message == "OK" {
-                                PlaytakResponse::Ok
-                            } else {
-                                PlaytakResponse::Err
-                            })
-                            .unwrap();
-                    }
-                    _ => {}
-                };
-            }
-        });
-    }
+    let (a, b, c) = join!(
+        client.send(format!(
+            "Client {}+{}-{}",
+            client_name,
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION")
+        )),
+        client.send("Protocol 1"),
+        client.send(format!("Login {} {}", client.username, client.password)),
+    );
+    [a, b, c].into_iter().for_each(|r| r.unwrap());
 
-    {
-        let tx = tx.clone();
-        spawn(async move {
-            let mut interval = interval(ping_interval);
-            loop {
-                interval.tick().await;
-                let channel = channel();
-                let ping_timestamp = Instant::now();
-                tx.send(("PING".to_string(), channel.0)).unwrap();
-                spawn(async move {
-                    channel.1.await.unwrap();
-                    println!(
-                        "Latency: {}ms",
-                        (Instant::now() - ping_timestamp).as_millis()
-                    );
-                });
-            }
-        });
-    }
+    info!("Client ready");
 
-    Client {
-        username,
-        password,
-        tx,
-    }
+    client
 }
 
 pub struct Client {
@@ -157,11 +189,15 @@ pub struct Client {
     tx: UnboundedSender<(String, Sender<PlaytakResponse>)>,
 }
 
-#[derive(Debug)]
-enum PlaytakResponse {
-    Ok,
-    Err,
+impl Client {
+    fn send<S: ToString>(&self, s: S) -> impl Future<Output = PlaytakResponse> {
+        let channel = channel();
+        self.tx.send((s.to_string(), channel.0)).unwrap();
+        channel.1.map(|r| r.unwrap())
+    }
 }
+
+type PlaytakResponse = Result<(), ()>;
 
 // impl Client {
 //     pub fn quitter(&self) -> Quitter {
