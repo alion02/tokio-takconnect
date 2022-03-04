@@ -1,7 +1,6 @@
 use std::{
     collections::VecDeque,
     sync::Arc,
-    thread,
     time::{Duration, Instant},
 };
 
@@ -55,7 +54,6 @@ async fn internal_connect(
 
     {
         info!("Establishing WebSocket Secure connnection to Playtak server");
-        let time = Instant::now();
         let mut stream = connect_async("wss://playtak.com/ws")
             .await
             .unwrap()
@@ -71,7 +69,7 @@ async fn internal_connect(
                         let mut queue = queue.lock();
                         let backlog = queue.len();
                         if backlog != 0 {
-                            debug!("Sending a command while awaiting responses to {backlog} previous command(s)");
+                            debug!("Sending a command while awaiting response(s) to {backlog} previous command(s)");
                         }
                         queue.push_back(tx);
                     }
@@ -159,7 +157,7 @@ async fn internal_connect(
 
     info!(
         "Logging in as {}",
-        if client.username == "Guest" {
+        if client.is_guest() {
             "a guest".to_string()
         } else {
             format!("\"{}\"", client.username)
@@ -173,7 +171,7 @@ async fn internal_connect(
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION")
         )),
-        client.send("Protocol 1"),
+        client.send("Protocol 1".to_string()),
         client.send(format!("Login {} {}", client.username, client.password)),
     );
     [a, b, c].into_iter().for_each(|r| r.unwrap());
@@ -190,9 +188,13 @@ pub struct Client {
 }
 
 impl Client {
-    fn send<S: ToString>(&self, s: S) -> impl Future<Output = PlaytakResponse> {
+    pub fn is_guest(&self) -> bool {
+        self.username == "Guest"
+    }
+
+    fn send(&self, s: String) -> impl Future<Output = PlaytakResponse> {
         let channel = channel();
-        self.tx.send((s.to_string(), channel.0)).unwrap();
+        self.tx.send((s, channel.0)).unwrap();
         channel.1.map(|r| r.unwrap())
     }
 }
