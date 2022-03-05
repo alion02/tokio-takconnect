@@ -88,12 +88,11 @@ async fn internal_connect(
 
                 match command {
                     "OK" | "NOK" | "Welcome" => {
-                        queue
-                            .lock()
-                            .pop_front()
-                            .unwrap()
-                            .send(message.to_string())
-                            .unwrap();
+                        if let Err(message) =
+                            queue.lock().pop_front().unwrap().send(message.to_string())
+                        {
+                            warn!("Confirmation message \"{message}\" was discarded");
+                        }
                     }
                     "Welcome!" | "Login" => {
                         debug!("Ignoring redundant message \"{message}\"");
