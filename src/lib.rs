@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    error::Error,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -18,7 +19,7 @@ use tokio::{
     },
     time::interval,
 };
-use tokio_tungstenite::{connect_async, WebSocketStream};
+use tokio_tungstenite::connect_async;
 
 use rand::{distributions::Uniform, prelude::StdRng, Rng, SeedableRng};
 
@@ -39,17 +40,20 @@ async fn connect() -> Client {
         "Guest".to_string(),
         token,
         "unknown",
+        true,
         Duration::from_millis(2_000),
     )
     .await
+    .unwrap()
 }
 
 async fn internal_connect(
     username: String,
     password: String,
     client_name: &str,
+    append_lib_name: bool,
     ping_interval: Duration,
-) -> Client {
+) -> Result<Client, Box<dyn Error>> {
     let (tx, mut rx) = unbounded_channel::<(String, _)>();
 
     {
@@ -60,7 +64,7 @@ async fn internal_connect(
             .0
             .split();
 
-        let queue = Arc::new(Mutex::new(VecDeque::<Sender<PlaytakResponse>>::new()));
+        let queue = Arc::new(Mutex::new(VecDeque::<Sender<String>>::new()));
         {
             let queue = queue.clone();
             spawn(async move {
@@ -80,22 +84,25 @@ async fn internal_connect(
         spawn(async move {
             while let Some(Ok(message)) = stream.1.next().await {
                 let message = message.to_text().unwrap().strip_suffix(|_| true).unwrap();
+                let (command, rest) = message.split_once([' ', '#', ':']).unwrap_or((message, ""));
 
-                match message {
-                    "OK" | "NOK" => {
+                match command {
+                    "OK" | "NOK" | "Welcome" => {
                         queue
                             .lock()
                             .pop_front()
                             .unwrap()
-                            .send(if message == "OK" {
-                                PlaytakResponse::Ok(())
-                            } else {
-                                PlaytakResponse::Err(())
-                            })
+                            .send(message.to_string())
                             .unwrap();
                     }
+                    "Welcome!" | "Login" => {
+                        debug!("Ignoring redundant message \"{message}\"");
+                    }
+                    "Error" => {
+                        warn!("Ignoring error message \"{message}\"");
+                    }
                     _ => {
-                        info!("Ignoring unknown message \"{message}\"");
+                        warn!("Ignoring unknown message \"{message}\"");
                     }
                 };
             }
@@ -112,7 +119,9 @@ async fn internal_connect(
                 let time = Instant::now();
                 tx.send(("PING".to_string(), channel.0)).unwrap();
                 spawn(async move {
-                    channel.1.await.unwrap().unwrap();
+                    if channel.1.await.unwrap() != "OK" {
+                        warn!("Playtak rejected PING");
+                    };
                     debug!("Ping: {}ms", time.elapsed().as_millis());
                 });
             }
@@ -125,36 +134,6 @@ async fn internal_connect(
         tx,
     };
 
-    // {
-    //     assert_eq!(
-    //         rx.next().await.unwrap(),
-    //         "Welcome!",
-    //         "server sent unrecognized welcome message"
-    //     );
-    //     assert_eq!(
-    //         rx.next().await.unwrap(),
-    //         "Login or Register",
-    //         "server forgot to tell us to login or register"
-    //     );
-    // }
-
-    // tx.send_all(&mut stream::iter(
-    //     [
-    //         format!(
-    //             "Client {}+{}-{}",
-    //             client,
-    //             env!("CARGO_PKG_NAME"),
-    //             env!("CARGO_PKG_VERSION")
-    //         ),
-    //         "Protocol 1".to_string(),
-    //         format!("Login {username} {password}"),
-    //     ]
-    //     .into_iter()
-    //     .map(|s| Ok(s.into())),
-    // ))
-    // .await
-    // .unwrap();
-
     info!(
         "Logging in as {}",
         if client.is_guest() {
@@ -164,27 +143,43 @@ async fn internal_connect(
         }
     );
 
-    let (a, b, c) = join!(
-        client.send(format!(
-            "Client {}+{}-{}",
+    let client_name = if append_lib_name {
+        format!(
+            "{}+{}-{}",
             client_name,
             env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION")
-        )),
+            env!("CARGO_PKG_VERSION"),
+        )
+    } else {
+        client_name.to_string()
+    };
+
+    let (a, b, c) = join!(
+        client.send(format!("Client {client_name}")),
         client.send("Protocol 1".to_string()),
         client.send(format!("Login {} {}", client.username, client.password)),
     );
-    [a, b, c].into_iter().for_each(|r| r.unwrap());
+    if a != "OK" {
+        warn!("Playtak rejected client name \"{client_name}\"");
+    }
+    if b != "OK" {
+        return Err("Playtak rejected protocol upgrade to version 1".into());
+    }
+    let _guest_id = c
+        .strip_prefix(format!("Welcome {}", client.username).as_str())
+        .map(|c| c.strip_suffix(|_| true))
+        .flatten()
+        .ok_or("Failed to log in with the provided credentials")?;
 
     info!("Client ready");
 
-    client
+    Ok(client)
 }
 
 pub struct Client {
     username: String,
     password: String,
-    tx: UnboundedSender<(String, Sender<PlaytakResponse>)>,
+    tx: UnboundedSender<(String, Sender<String>)>,
 }
 
 impl Client {
@@ -192,10 +187,10 @@ impl Client {
         self.username == "Guest"
     }
 
-    fn send(&self, s: String) -> impl Future<Output = PlaytakResponse> {
+    async fn send(&self, s: String) -> String {
         let channel = channel();
         self.tx.send((s, channel.0)).unwrap();
-        channel.1.map(|r| r.unwrap())
+        channel.1.await.unwrap()
     }
 }
 
