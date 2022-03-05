@@ -109,29 +109,10 @@ async fn internal_connect(
         });
     }
 
-    {
-        let tx = tx.clone();
-        spawn(async move {
-            let mut interval = interval(ping_interval);
-            loop {
-                interval.tick().await;
-                let channel = channel();
-                let time = Instant::now();
-                tx.send(("PING".to_string(), channel.0)).unwrap();
-                spawn(async move {
-                    if channel.1.await.unwrap() != "OK" {
-                        warn!("Playtak rejected PING");
-                    };
-                    debug!("Ping: {}ms", time.elapsed().as_millis());
-                });
-            }
-        });
-    }
-
     let client = Client {
         username,
         password,
-        tx,
+        tx: tx.clone(),
     };
 
     info!(
@@ -170,6 +151,24 @@ async fn internal_connect(
         .map(|c| c.strip_suffix(|_| true))
         .flatten()
         .ok_or("Failed to log in with the provided credentials")?;
+
+    info!("Pinging every {ping_interval:?}");
+
+    spawn(async move {
+        let mut interval = interval(ping_interval);
+        loop {
+            interval.tick().await;
+            let channel = channel();
+            let time = Instant::now();
+            tx.send(("PING".to_string(), channel.0)).unwrap();
+            spawn(async move {
+                if channel.1.await.unwrap() != "OK" {
+                    warn!("Playtak rejected PING");
+                };
+                debug!("Ping: {}ms", time.elapsed().as_millis());
+            });
+        }
+    });
 
     info!("Client ready");
 
