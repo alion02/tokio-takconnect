@@ -191,3 +191,59 @@ impl Client {
         channel.1.await.unwrap()
     }
 }
+
+#[derive(Debug)]
+pub struct Seek {
+    id: u32,
+    seeker: String,
+    opponent: Option<String>,
+    color: Color,
+    params: GameParameters,
+}
+
+#[derive(Debug)]
+pub struct GameParameters {
+    size: u32,
+    initial_time: Duration,
+    increment: Duration,
+    half_komi: i32,
+    flat_count: u32,
+    cap_count: u32,
+}
+
+impl GameParameters {
+    pub fn new(
+        size: u32,
+        initial_time: Duration,
+        increment: Duration,
+        half_komi: i32,
+        flat_count: u32,
+        cap_count: u32,
+    ) -> Result<Self, Box<dyn Error>> {
+        if size > 8
+            || size < 3
+            || initial_time.subsec_nanos() != 0
+            || increment.subsec_nanos() != 0
+            || half_komi > 8
+            || half_komi < 0
+        {
+            Err("Game parameters not supported by Playtak".into())
+        } else {
+            Ok(Self {
+                size,
+                initial_time,
+                increment,
+                half_komi,
+                flat_count,
+                cap_count,
+            })
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Color {
+    Any,
+    White,
+    Black,
+}
