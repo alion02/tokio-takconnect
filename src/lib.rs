@@ -37,7 +37,7 @@ async fn connect() -> Client {
         .collect::<String>();
 
     internal_connect(
-        "Guest".to_string(),
+        "Guest".into(),
         token,
         "unknown",
         true,
@@ -48,7 +48,7 @@ async fn connect() -> Client {
 }
 
 async fn internal_connect(
-    username: String,
+    pseudo_username: String,
     password: String,
     client_name: &str,
     append_lib_name: bool,
@@ -64,7 +64,7 @@ async fn internal_connect(
             .0
             .split();
 
-        let queue = Arc::new(Mutex::new(VecDeque::<Sender<String>>::new()));
+        let queue = Arc::new(Mutex::new(VecDeque::<Sender<Message>>::new()));
         {
             let queue = queue.clone();
             spawn(async move {
@@ -82,34 +82,36 @@ async fn internal_connect(
             });
         }
         spawn(async move {
-            while let Some(Ok(message)) = stream.1.next().await {
-                let message = message.to_text().unwrap().strip_suffix(|_| true).unwrap();
-                let (command, rest) = message.split_once([' ', '#', ':']).unwrap_or((message, ""));
+            while let Some(Ok(text)) = stream.1.next().await {
+                let text = text.to_text().unwrap().strip_suffix(|_| true).unwrap();
+                let (command, rest) = text.split_once([' ', '#', ':']).unwrap_or((text, ""));
 
-                match command {
-                    "OK" | "NOK" | "Welcome" => {
-                        if let Err(message) =
-                            queue.lock().pop_front().unwrap().send(message.to_string())
-                        {
-                            warn!("Confirmation message \"{message}\" was discarded");
+                let message = match command {
+                    "OK" => Message::Ok,
+                    "NOK" => Message::NotOk,
+                    "Welcome" => Message::LoggedIn(rest.strip_suffix(|_| true).unwrap().into()),
+                    "Welcome!" | "Login" => Message::Message(text.into()),
+                    "Message" => Message::Message(rest.into()),
+                    "Error" => Message::Error(rest.into()),
+                    _ => Message::Unknown(text.into()),
+                };
+
+                match message {
+                    Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
+                        if let Err(_) = queue.lock().pop_front().unwrap().send(message) {
+                            warn!("Confirmation message \"{text}\" was discarded");
                         }
                     }
-                    "Welcome!" | "Login" => {
-                        debug!("Ignoring redundant message \"{message}\"");
-                    }
-                    "Error" => {
-                        warn!("Ignoring error message \"{message}\"");
-                    }
-                    _ => {
-                        warn!("Ignoring unknown message \"{message}\"");
-                    }
+                    Message::Message(text) => debug!("Ignoring server message \"{text}\""),
+                    Message::Error(text) => warn!("Ignoring error message \"{text}\""),
+                    Message::Unknown(text) => warn!("Ignoring unknown message \"{text}\""),
                 };
             }
         });
     }
 
     let client = Client {
-        username,
+        username: pseudo_username,
         password,
         tx: tx.clone(),
     };
@@ -117,7 +119,7 @@ async fn internal_connect(
     info!(
         "Logging in as {}",
         if client.is_guest() {
-            "a guest".to_string()
+            "a guest".into()
         } else {
             format!("\"{}\"", client.username)
         }
@@ -131,25 +133,25 @@ async fn internal_connect(
             env!("CARGO_PKG_VERSION"),
         )
     } else {
-        client_name.to_string()
+        client_name.into()
     };
 
     let (a, b, c) = join!(
         client.send(format!("Client {client_name}")),
-        client.send("Protocol 1".to_string()),
+        client.send("Protocol 1".into()),
         client.send(format!("Login {} {}", client.username, client.password)),
     );
-    if a != "OK" {
+
+    if a != Message::Ok {
         warn!("Playtak rejected client name \"{client_name}\"");
     }
-    if b != "OK" {
+    if b != Message::Ok {
         return Err("Playtak rejected protocol upgrade to version 1".into());
     }
-    let _guest_id = c
-        .strip_prefix(format!("Welcome {}", client.username).as_str())
-        .map(|c| c.strip_suffix(|_| true))
-        .flatten()
-        .ok_or("Failed to log in with the provided credentials")?;
+    let _username = match c {
+        Message::LoggedIn(name) => Ok(name),
+        _ => Err("Failed to log in with the provided credentials"),
+    }?;
 
     info!("Pinging every {ping_interval:?}");
 
@@ -159,13 +161,16 @@ async fn internal_connect(
             interval.tick().await;
             let channel = channel();
             let time = Instant::now();
-            tx.send(("PING".to_string(), channel.0)).unwrap();
-            spawn(async move {
-                if channel.1.await.unwrap() != "OK" {
-                    warn!("Playtak rejected PING");
-                };
-                debug!("Ping: {}ms", time.elapsed().as_millis());
-            });
+            if let Ok(_) = tx.send(("PING".into(), channel.0)) {
+                spawn(async move {
+                    if channel.1.await.unwrap() != Message::Ok {
+                        warn!("Playtak rejected PING");
+                    };
+                    debug!("Ping: {}ms", time.elapsed().as_millis());
+                });
+            } else {
+                break;
+            }
         }
     });
 
@@ -174,10 +179,12 @@ async fn internal_connect(
     Ok(client)
 }
 
+#[derive(Debug)]
 pub struct Client {
+    // hi, it's past alion, remember that you don't receive moves you send
     username: String,
     password: String,
-    tx: UnboundedSender<(String, Sender<String>)>,
+    tx: UnboundedSender<(String, Sender<Message>)>,
 }
 
 impl Client {
@@ -185,7 +192,7 @@ impl Client {
         self.username == "Guest"
     }
 
-    async fn send(&self, s: String) -> String {
+    async fn send(&self, s: String) -> Message {
         let channel = channel();
         self.tx.send((s, channel.0)).unwrap();
         channel.1.await.unwrap()
@@ -246,4 +253,14 @@ pub enum Color {
     Any,
     White,
     Black,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Message {
+    Ok,
+    NotOk,
+    LoggedIn(String),
+    Message(String),
+    Error(String),
+    Unknown(String),
 }
