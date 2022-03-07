@@ -197,6 +197,34 @@ impl Client {
         self.tx.send((s, channel.0)).unwrap();
         channel.1.await.unwrap()
     }
+
+    pub async fn seek(&self, seek: SeekParameters) -> Result<(), Box<dyn Error>> {
+        let params = seek.params;
+        match self
+            .send(format!(
+                "Seek {} {} {} {} {} {} {} {} {} {}",
+                params.size,
+                params.initial_time.as_secs(),
+                params.increment.as_secs(),
+                match seek.color {
+                    Color::Any => 'A',
+                    Color::White => 'W',
+                    Color::Black => 'B',
+                },
+                params.half_komi,
+                params.flat_count,
+                params.cap_count,
+                if params.unrated { '1' } else { '0' },
+                if params.tournament { '1' } else { '0' },
+                seek.opponent.unwrap_or_default(),
+            ))
+            .await
+        {
+            Message::Ok => Ok(()),
+            Message::NotOk => Err("Playtak rejected the seek".into()),
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[derive(Debug)]
