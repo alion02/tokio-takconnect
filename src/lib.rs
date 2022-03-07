@@ -179,12 +179,20 @@ async fn internal_connect(
     Ok(client)
 }
 
+type MasterSender = UnboundedSender<(String, Sender<Message>)>;
+
+async fn send(tx: &MasterSender, s: String) -> Message {
+    let channel = channel();
+    tx.send((s, channel.0)).unwrap();
+    channel.1.await.unwrap()
+}
+
 #[derive(Debug)]
 pub struct Client {
     // hi, it's past alion, remember that you don't receive moves you send
     username: String,
     password: String,
-    tx: UnboundedSender<(String, Sender<Message>)>,
+    tx: MasterSender,
 }
 
 impl Client {
@@ -193,9 +201,7 @@ impl Client {
     }
 
     async fn send(&self, s: String) -> Message {
-        let channel = channel();
-        self.tx.send((s, channel.0)).unwrap();
-        channel.1.await.unwrap()
+        send(&self.tx, s).await
     }
 
     pub async fn seek(&self, seek: SeekParameters) -> Result<(), Box<dyn Error>> {
