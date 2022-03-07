@@ -203,9 +203,28 @@ impl Client {
 pub struct Seek {
     id: u32,
     seeker: String,
+    params: SeekParameters,
+}
+
+#[derive(Debug)]
+pub struct SeekParameters {
     opponent: Option<String>,
     color: Color,
     params: GameParameters,
+}
+
+impl SeekParameters {
+    pub fn new(
+        opponent: Option<String>,
+        color: Color,
+        params: GameParameters,
+    ) -> Result<Self, Box<dyn Error>> {
+        Ok(Self {
+            opponent,
+            color,
+            params,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -216,6 +235,8 @@ pub struct GameParameters {
     half_komi: i32,
     flat_count: u32,
     cap_count: u32,
+    unrated: bool,
+    tournament: bool,
 }
 
 impl GameParameters {
@@ -226,6 +247,8 @@ impl GameParameters {
         half_komi: i32,
         flat_count: u32,
         cap_count: u32,
+        unrated: bool,
+        tournament: bool,
     ) -> Result<Self, Box<dyn Error>> {
         if size > 8
             || size < 3
@@ -243,6 +266,8 @@ impl GameParameters {
                 half_komi,
                 flat_count,
                 cap_count,
+                unrated,
+                tournament,
             })
         }
     }
