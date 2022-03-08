@@ -154,6 +154,7 @@ async fn internal_connect(
                         "Start" => Message::StartGame(token().parse().unwrap()),
                         id => todo!(),
                     },
+                    "Online" => Message::Online(token().parse().unwrap()),
                     "Welcome" => Message::LoggedIn(rest.strip_suffix(|_| true).unwrap().into()),
                     "Welcome!" | "Login" => Message::Message(text.into()),
                     "Message" => Message::Message(rest.into()),
@@ -192,6 +193,7 @@ async fn internal_connect(
                         }
                     }
                     Message::StartGame(id) => todo!(),
+                    Message::Online(count) => debug!("Online: {count}"),
                     Message::Message(text) => debug!("Ignoring server message \"{text}\""),
                     Message::Error(text) => warn!("Ignoring error message \"{text}\""),
                     Message::Unknown(text) => warn!("Ignoring unknown message \"{text}\""),
@@ -462,6 +464,7 @@ pub enum Message {
     AddGame(Game),
     RemoveGame(u32),
     StartGame(u32),
+    Online(u32),
     Message(String),
     Error(String),
     Unknown(String),
