@@ -126,6 +126,25 @@ async fn internal_connect(
                         "remove" => Message::RemoveSeek(token().parse().unwrap()),
                         _ => unreachable!(),
                     },
+                    "GameList" => match token() {
+                        "Add" => Message::NewGame(Game {
+                            id: token().parse().unwrap(),
+                            white: token().into(),
+                            black: token().into(),
+                            params: GameParameters {
+                                size: token().parse().unwrap(),
+                                initial_time: Duration::from_secs(token().parse().unwrap()),
+                                increment: Duration::from_secs(token().parse().unwrap()),
+                                half_komi: token().parse().unwrap(),
+                                flat_count: token().parse().unwrap(),
+                                cap_count: token().parse().unwrap(),
+                                unrated: token() == "1",
+                                tournament: token() == "1",
+                            },
+                        }),
+                        "Remove" => Message::RemoveGame(token().parse().unwrap()),
+                        _ => unreachable!(),
+                    },
                     "Game" => match token() {
                         "Start" => Message::StartGame(token().parse().unwrap()),
                         id => todo!(),
@@ -145,6 +164,8 @@ async fn internal_connect(
                     }
                     Message::NewSeek(seek) => todo!(),
                     Message::RemoveSeek(id) => todo!(),
+                    Message::NewGame(game) => todo!(),
+                    Message::RemoveGame(id) => todo!(),
                     Message::StartGame(id) => todo!(),
                     Message::Message(text) => debug!("Ignoring server message \"{text}\""),
                     Message::Error(text) => warn!("Ignoring error message \"{text}\""),
@@ -314,6 +335,22 @@ impl SeekParameters {
 }
 
 #[derive(Debug)]
+pub struct Game {
+    id: u32,
+    white: String,
+    black: String,
+    params: GameParameters,
+}
+
+impl PartialEq for Game {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Game {}
+
+#[derive(Debug)]
 pub struct GameParameters {
     size: u32,
     initial_time: Duration,
@@ -373,6 +410,8 @@ pub enum Message {
     LoggedIn(String),
     NewSeek(Seek),
     RemoveSeek(u32),
+    NewGame(Game),
+    RemoveGame(u32),
     StartGame(u32),
     Message(String),
     Error(String),
