@@ -85,10 +85,51 @@ async fn internal_connect(
             while let Some(Ok(text)) = stream.1.next().await {
                 let text = text.to_text().unwrap().strip_suffix(|_| true).unwrap();
                 let (command, rest) = text.split_once([' ', '#', ':']).unwrap_or((text, ""));
+                let mut tokens = rest.split(' ');
+                let mut token = || tokens.next().unwrap();
 
                 let message = match command {
                     "OK" => Message::Ok,
                     "NOK" => Message::NotOk,
+                    "Seek" => match token() {
+                        "new" => Message::NewSeek(Seek {
+                            id: token().parse().unwrap(),
+                            seeker: token().into(),
+                            params: {
+                                let size = token().parse().unwrap();
+                                let initial_time = Duration::from_secs(token().parse().unwrap());
+                                let increment = Duration::from_secs(token().parse().unwrap());
+                                SeekParameters {
+                                    color: match token() {
+                                        "A" => Color::Any,
+                                        "W" => Color::White,
+                                        "B" => Color::Black,
+                                        _ => unreachable!(),
+                                    },
+                                    params: GameParameters {
+                                        size,
+                                        initial_time,
+                                        increment,
+                                        half_komi: token().parse().unwrap(),
+                                        flat_count: token().parse().unwrap(),
+                                        cap_count: token().parse().unwrap(),
+                                        unrated: token() == "1",
+                                        tournament: token() == "1",
+                                    },
+                                    opponent: match token() {
+                                        "" => None,
+                                        name => Some(name.into()),
+                                    },
+                                }
+                            },
+                        }),
+                        "remove" => Message::RemoveSeek(token().parse().unwrap()),
+                        _ => unreachable!(),
+                    },
+                    "Game" => match token() {
+                        "Start" => Message::StartGame(token().parse().unwrap()),
+                        id => todo!(),
+                    },
                     "Welcome" => Message::LoggedIn(rest.strip_suffix(|_| true).unwrap().into()),
                     "Welcome!" | "Login" => Message::Message(text.into()),
                     "Message" => Message::Message(rest.into()),
@@ -102,6 +143,9 @@ async fn internal_connect(
                             warn!("Confirmation message \"{text}\" was discarded");
                         }
                     }
+                    Message::NewSeek(seek) => todo!(),
+                    Message::RemoveSeek(id) => todo!(),
+                    Message::StartGame(id) => todo!(),
                     Message::Message(text) => debug!("Ignoring server message \"{text}\""),
                     Message::Error(text) => warn!("Ignoring error message \"{text}\""),
                     Message::Unknown(text) => warn!("Ignoring unknown message \"{text}\""),
@@ -240,6 +284,14 @@ pub struct Seek {
     params: SeekParameters,
 }
 
+impl PartialEq for Seek {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Seek {}
+
 #[derive(Debug)]
 pub struct SeekParameters {
     opponent: Option<String>,
@@ -319,6 +371,9 @@ pub enum Message {
     Ok,
     NotOk,
     LoggedIn(String),
+    NewSeek(Seek),
+    RemoveSeek(u32),
+    StartGame(u32),
     Message(String),
     Error(String),
     Unknown(String),
