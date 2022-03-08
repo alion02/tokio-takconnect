@@ -1,6 +1,8 @@
 use std::{
-    collections::VecDeque,
+    borrow::Borrow,
+    collections::{HashSet, VecDeque},
     error::Error,
+    hash::{Hash, Hasher},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -82,6 +84,9 @@ async fn internal_connect(
             });
         }
         spawn(async move {
+            let mut seeks = HashSet::new();
+            let mut games = HashSet::new();
+
             while let Some(Ok(text)) = stream.1.next().await {
                 let text = text.to_text().unwrap().strip_suffix(|_| true).unwrap();
                 let (command, rest) = text.split_once([' ', '#', ':']).unwrap_or((text, ""));
@@ -92,7 +97,7 @@ async fn internal_connect(
                     "OK" => Message::Ok,
                     "NOK" => Message::NotOk,
                     "Seek" => match token() {
-                        "new" => Message::NewSeek(Seek {
+                        "new" => Message::AddSeek(Seek {
                             id: token().parse().unwrap(),
                             seeker: token().into(),
                             params: {
@@ -127,7 +132,7 @@ async fn internal_connect(
                         _ => unreachable!(),
                     },
                     "GameList" => match token() {
-                        "Add" => Message::NewGame(Game {
+                        "Add" => Message::AddGame(Game {
                             id: token().parse().unwrap(),
                             white: token().into(),
                             black: token().into(),
@@ -162,10 +167,30 @@ async fn internal_connect(
                             warn!("Confirmation message \"{text}\" was discarded");
                         }
                     }
-                    Message::NewSeek(seek) => todo!(),
-                    Message::RemoveSeek(id) => todo!(),
-                    Message::NewGame(game) => todo!(),
-                    Message::RemoveGame(id) => todo!(),
+                    Message::AddSeek(seek) => {
+                        debug!("Adding {seek:?}");
+                        if !seeks.insert(seek) {
+                            error!("Seek ID collision detected")
+                        }
+                    }
+                    Message::RemoveSeek(id) => {
+                        debug!("Removing seek {id}");
+                        if !seeks.remove(&id) {
+                            error!("Attempted to remove nonexistent seek")
+                        }
+                    }
+                    Message::AddGame(game) => {
+                        debug!("Adding {game:?}");
+                        if !games.insert(game) {
+                            error!("Game ID collision detected")
+                        }
+                    }
+                    Message::RemoveGame(id) => {
+                        debug!("Removing game {id}");
+                        if !games.remove(&id) {
+                            error!("Attempted to remove nonexistent game")
+                        }
+                    }
                     Message::StartGame(id) => todo!(),
                     Message::Message(text) => debug!("Ignoring server message \"{text}\""),
                     Message::Error(text) => warn!("Ignoring error message \"{text}\""),
@@ -313,6 +338,18 @@ impl PartialEq for Seek {
 
 impl Eq for Seek {}
 
+impl Hash for Seek {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+impl Borrow<u32> for Seek {
+    fn borrow(&self) -> &u32 {
+        &self.id
+    }
+}
+
 #[derive(Debug)]
 pub struct SeekParameters {
     opponent: Option<String>,
@@ -349,6 +386,18 @@ impl PartialEq for Game {
 }
 
 impl Eq for Game {}
+
+impl Hash for Game {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+impl Borrow<u32> for Game {
+    fn borrow(&self) -> &u32 {
+        &self.id
+    }
+}
 
 #[derive(Debug)]
 pub struct GameParameters {
@@ -408,9 +457,9 @@ pub enum Message {
     Ok,
     NotOk,
     LoggedIn(String),
-    NewSeek(Seek),
+    AddSeek(Seek),
     RemoveSeek(u32),
-    NewGame(Game),
+    AddGame(Game),
     RemoveGame(u32),
     StartGame(u32),
     Message(String),
