@@ -164,7 +164,7 @@ async fn internal_connect(
 
                 match message {
                     Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
-                        if let Err(_) = queue.lock().pop_front().unwrap().send(message) {
+                        if queue.lock().pop_front().unwrap().send(message).is_err() {
                             warn!("Confirmation message \"{text}\" was discarded");
                         }
                     }
@@ -253,7 +253,7 @@ async fn internal_connect(
             interval.tick().await;
             let channel = channel();
             let time = Instant::now();
-            if let Ok(_) = tx.send(("PING".into(), channel.0)) {
+            if tx.send(("PING".into(), channel.0)).is_ok() {
                 spawn(async move {
                     if channel.1.await.unwrap() != Message::Ok {
                         warn!("Playtak rejected PING");
