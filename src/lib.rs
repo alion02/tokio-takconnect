@@ -15,10 +15,7 @@ use futures::{
 use parking_lot::Mutex;
 use tokio::{
     join, spawn,
-    sync::{
-        mpsc::{unbounded_channel, UnboundedSender},
-        oneshot::{channel, Sender},
-    },
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     time::interval,
 };
 use tokio_tungstenite::connect_async;
@@ -66,7 +63,7 @@ async fn internal_connect(
             .0
             .split();
 
-        let queue = Arc::new(Mutex::new(VecDeque::<Sender<Message>>::new()));
+        let queue = Arc::new(Mutex::new(VecDeque::<Interceptor>::new()));
         {
             let queue = queue.clone();
             spawn(async move {
@@ -93,7 +90,7 @@ async fn internal_connect(
                 let mut tokens = rest.split(' ');
                 let mut token = || tokens.next().unwrap();
 
-                let message = match command {
+                let mut message = match command {
                     "OK" => Message::Ok,
                     "NOK" => Message::NotOk,
                     "Seek" => match token() {
@@ -162,42 +159,64 @@ async fn internal_connect(
                     _ => Message::Unknown(text.into()),
                 };
 
-                match message {
-                    Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
-                        if queue.lock().pop_front().unwrap().send(message).is_err() {
+                'process_message: loop {
+                    {
+                        let mut queue = queue.lock();
+                        let mut i = 0;
+                        while i < queue.len() {
+                            let interceptor = &mut queue[i];
+                            let result = interceptor(message);
+
+                            if result.finished {
+                                queue.remove(i);
+                            } else {
+                                i += 1;
+                            }
+
+                            if let Some(returned_message) = result.message {
+                                message = returned_message;
+                            } else {
+                                break 'process_message;
+                            }
+                        }
+                    }
+
+                    match message {
+                        Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
                             warn!("Confirmation message \"{text}\" was discarded");
                         }
-                    }
-                    Message::AddSeek(seek) => {
-                        debug!("Adding {seek:?}");
-                        if !seeks.insert(seek) {
-                            error!("Seek ID collision detected")
+                        Message::AddSeek(seek) => {
+                            debug!("Adding {seek:?}");
+                            if !seeks.insert(seek) {
+                                error!("Seek ID collision detected")
+                            }
                         }
-                    }
-                    Message::RemoveSeek(id) => {
-                        debug!("Removing seek {id}");
-                        if !seeks.remove(&id) {
-                            error!("Attempted to remove nonexistent seek")
+                        Message::RemoveSeek(id) => {
+                            debug!("Removing seek {id}");
+                            if !seeks.remove(&id) {
+                                error!("Attempted to remove nonexistent seek")
+                            }
                         }
-                    }
-                    Message::AddGame(game) => {
-                        debug!("Adding {game:?}");
-                        if !games.insert(game) {
-                            error!("Game ID collision detected")
+                        Message::AddGame(game) => {
+                            debug!("Adding {game:?}");
+                            if !games.insert(game) {
+                                error!("Game ID collision detected")
+                            }
                         }
-                    }
-                    Message::RemoveGame(id) => {
-                        debug!("Removing game {id}");
-                        if !games.remove(&id) {
-                            error!("Attempted to remove nonexistent game")
+                        Message::RemoveGame(id) => {
+                            debug!("Removing game {id}");
+                            if !games.remove(&id) {
+                                error!("Attempted to remove nonexistent game")
+                            }
                         }
-                    }
-                    Message::StartGame(id) => todo!(),
-                    Message::Online(count) => debug!("Online: {count}"),
-                    Message::Message(text) => debug!("Ignoring server message \"{text}\""),
-                    Message::Error(text) => warn!("Ignoring error message \"{text}\""),
-                    Message::Unknown(text) => warn!("Ignoring unknown message \"{text}\""),
-                };
+                        Message::StartGame(id) => todo!(),
+                        Message::Online(count) => debug!("Online: {count}"),
+                        Message::Message(text) => debug!("Ignoring server message \"{text}\""),
+                        Message::Error(text) => warn!("Ignoring error message \"{text}\""),
+                        Message::Unknown(text) => warn!("Ignoring unknown message \"{text}\""),
+                    };
+                    break;
+                }
             }
         });
     }
@@ -251,18 +270,15 @@ async fn internal_connect(
         let mut interval = interval(ping_interval);
         loop {
             interval.tick().await;
-            let channel = channel();
+
             let time = Instant::now();
-            if tx.send(("PING".into(), channel.0)).is_ok() {
-                spawn(async move {
-                    if channel.1.await.unwrap() != Message::Ok {
-                        warn!("Playtak rejected PING");
-                    };
-                    debug!("Ping: {}ms", time.elapsed().as_millis());
-                });
-            } else {
-                break;
-            }
+            let mut rx = send(&tx, "PING".into());
+            spawn(async move {
+                if rx.recv().await.unwrap() != Message::Ok {
+                    warn!("Playtak rejected PING");
+                }
+                debug!("Ping: {}ms", time.elapsed().as_millis());
+            });
         }
     });
 
@@ -271,12 +287,70 @@ async fn internal_connect(
     Ok(client)
 }
 
-type MasterSender = UnboundedSender<(String, Sender<Message>)>;
+type MasterSender = UnboundedSender<(String, Interceptor)>;
 
-async fn send(tx: &MasterSender, s: String) -> Message {
-    let channel = channel();
-    tx.send((s, channel.0)).unwrap();
-    channel.1.await.unwrap()
+fn send(tx: &MasterSender, s: String) -> UnboundedReceiver<Message> {
+    let (response_tx, rx) = unbounded_channel();
+
+    tx.send((
+        s,
+        interceptor(move |m| match m {
+            Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
+                response_tx.send(m).unwrap();
+                InterceptionResult::finish()
+            }
+            _ => InterceptionResult::ignore(m),
+        }),
+    ))
+    .ok()
+    .unwrap();
+
+    rx
+}
+
+trait InterceptorTrait: FnMut(Message) -> InterceptionResult + Send {}
+impl<T: FnMut(Message) -> InterceptionResult + Send> InterceptorTrait for T {}
+
+type Interceptor = Box<dyn InterceptorTrait>;
+
+fn interceptor<F: 'static + InterceptorTrait>(f: F) -> Interceptor {
+    Box::new(f)
+}
+
+#[derive(Debug)]
+struct InterceptionResult {
+    message: Option<Message>,
+    finished: bool,
+}
+
+impl InterceptionResult {
+    fn ignore(message: Message) -> Self {
+        Self {
+            message: Some(message),
+            finished: false,
+        }
+    }
+
+    fn consume() -> Self {
+        Self {
+            message: None,
+            finished: false,
+        }
+    }
+
+    fn give_up(message: Message) -> Self {
+        Self {
+            message: Some(message),
+            finished: true,
+        }
+    }
+
+    fn finish() -> Self {
+        Self {
+            message: None,
+            finished: true,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -293,7 +367,7 @@ impl Client {
     }
 
     async fn send(&self, s: String) -> Message {
-        send(&self.tx, s).await
+        send(&self.tx, s).recv().await.unwrap()
     }
 
     pub async fn seek(&self, seek: SeekParameters) -> Result<(), Box<dyn Error>> {
