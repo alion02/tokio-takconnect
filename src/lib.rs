@@ -2,6 +2,7 @@ use std::{
     borrow::Borrow,
     collections::{HashSet, VecDeque},
     error::Error,
+    fmt::{Display, Formatter, Result as FmtResult},
     hash::{Hash, Hasher},
     str::FromStr,
     sync::Arc,
@@ -301,27 +302,7 @@ impl Client {
     }
 
     pub async fn seek(&self, seek: SeekParameters) -> Result<(), Box<dyn Error>> {
-        let params = seek.params;
-        match self
-            .send(format!(
-                "Seek {} {} {} {} {} {} {} {} {} {}",
-                params.size,
-                params.initial_time.as_secs(),
-                params.increment.as_secs(),
-                match seek.color {
-                    Color::Any => 'A',
-                    Color::White => 'W',
-                    Color::Black => 'B',
-                },
-                params.half_komi,
-                params.flat_count,
-                params.cap_count,
-                if params.unrated { '1' } else { '0' },
-                if params.tournament { '1' } else { '0' },
-                seek.opponent.unwrap_or_default(),
-            ))
-            .await
-        {
+        match self.send(Request::Seek(seek).to_string()).await {
             Message::Ok => Ok(()),
             Message::NotOk => Err("Playtak rejected the seek".into()),
             _ => unreachable!(),
@@ -456,6 +437,45 @@ pub enum Color {
     Any,
     White,
     Black,
+}
+
+#[derive(Debug)]
+enum Request {
+    Client(String),
+    Protocol(u32),
+    Login(String, String),
+    Seek(SeekParameters),
+}
+
+impl Display for Request {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            Self::Client(name) => write!(f, "Client {name}"),
+            Self::Protocol(version) => write!(f, "Protocol {version}"),
+            Self::Login(name, secret) => write!(f, "Login {name} {secret}"),
+            Self::Seek(seek) => {
+                let params = &seek.params;
+                write!(
+                    f,
+                    "Seek {} {} {} {} {} {} {} {} {} ",
+                    params.size,
+                    params.initial_time.as_secs(),
+                    params.increment.as_secs(),
+                    match seek.color {
+                        Color::Any => 'A',
+                        Color::White => 'W',
+                        Color::Black => 'B',
+                    },
+                    params.half_komi,
+                    params.flat_count,
+                    params.cap_count,
+                    if params.unrated { '1' } else { '0' },
+                    if params.tournament { '1' } else { '0' },
+                )?;
+                seek.opponent.iter().try_for_each(|o| o.fmt(f))
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
