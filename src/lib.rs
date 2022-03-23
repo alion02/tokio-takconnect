@@ -16,8 +16,11 @@ use futures::{
 
 use parking_lot::Mutex;
 use tokio::{
-    join, spawn,
-    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    join, select, spawn,
+    sync::{
+        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+        oneshot::{channel, Sender},
+    },
     time::interval,
 };
 use tokio_tungstenite::connect_async;
@@ -80,6 +83,9 @@ async fn internal_connect(
                     }
                     stream.0.send(message.into()).await.unwrap(); // Is this cancellation safe?
                 }
+
+                debug!("Closing Playtak connection");
+                stream.0.close().await.unwrap();
             });
         }
         spawn(async move {
@@ -149,13 +155,18 @@ async fn internal_connect(
                     break;
                 }
             }
+
+            debug!("Connection closed");
         });
     }
+
+    let (_ping_tx, mut ping_rx) = channel::<()>();
 
     let client = Client {
         username: pseudo_username,
         password,
         tx: tx.clone(),
+        _ping_tx,
     };
 
     info!(
@@ -200,16 +211,22 @@ async fn internal_connect(
     spawn(async move {
         let mut interval = interval(ping_interval);
         loop {
-            interval.tick().await;
-
-            let time = Instant::now();
-            let mut rx = send(&tx, "PING".into());
-            spawn(async move {
-                if rx.recv().await.unwrap() != Message::Ok {
-                    warn!("Playtak rejected PING");
+            select! {
+                biased;
+                _ = &mut ping_rx => {
+                    break;
                 }
-                debug!("Ping: {}ms", time.elapsed().as_millis());
-            });
+                _ = interval.tick() => {
+                    let time = Instant::now();
+                    let mut rx = send(&tx, "PING".into());
+                    spawn(async move {
+                        if rx.recv().await.unwrap() != Message::Ok {
+                            warn!("Playtak rejected PING");
+                        }
+                        debug!("Ping: {}ms", time.elapsed().as_millis());
+                    });
+                }
+            }
         }
     });
 
@@ -290,6 +307,7 @@ pub struct Client {
     username: String,
     password: String,
     tx: MasterSender,
+    _ping_tx: Sender<()>,
 }
 
 impl Client {
