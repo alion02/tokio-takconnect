@@ -3,6 +3,7 @@ use std::{
     collections::{HashSet, VecDeque},
     error::Error,
     hash::{Hash, Hasher},
+    str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -86,78 +87,7 @@ async fn internal_connect(
 
             while let Some(Ok(text)) = stream.1.next().await {
                 let text = text.to_text().unwrap().strip_suffix(|_| true).unwrap();
-                let (command, rest) = text.split_once([' ', '#', ':']).unwrap_or((text, ""));
-                let mut tokens = rest.split(' ');
-                let mut token = || tokens.next().unwrap();
-
-                let mut message = match command {
-                    "OK" => Message::Ok,
-                    "NOK" => Message::NotOk,
-                    "Seek" => match token() {
-                        "new" => Message::AddSeek(Seek {
-                            id: token().parse().unwrap(),
-                            seeker: token().into(),
-                            params: {
-                                let size = token().parse().unwrap();
-                                let initial_time = Duration::from_secs(token().parse().unwrap());
-                                let increment = Duration::from_secs(token().parse().unwrap());
-                                SeekParameters {
-                                    color: match token() {
-                                        "A" => Color::Any,
-                                        "W" => Color::White,
-                                        "B" => Color::Black,
-                                        _ => unreachable!(),
-                                    },
-                                    params: GameParameters {
-                                        size,
-                                        initial_time,
-                                        increment,
-                                        half_komi: token().parse().unwrap(),
-                                        flat_count: token().parse().unwrap(),
-                                        cap_count: token().parse().unwrap(),
-                                        unrated: token() == "1",
-                                        tournament: token() == "1",
-                                    },
-                                    opponent: match token() {
-                                        "" => None,
-                                        name => Some(name.into()),
-                                    },
-                                }
-                            },
-                        }),
-                        "remove" => Message::RemoveSeek(token().parse().unwrap()),
-                        _ => unreachable!(),
-                    },
-                    "GameList" => match token() {
-                        "Add" => Message::AddGame(Game {
-                            id: token().parse().unwrap(),
-                            white: token().into(),
-                            black: token().into(),
-                            params: GameParameters {
-                                size: token().parse().unwrap(),
-                                initial_time: Duration::from_secs(token().parse().unwrap()),
-                                increment: Duration::from_secs(token().parse().unwrap()),
-                                half_komi: token().parse().unwrap(),
-                                flat_count: token().parse().unwrap(),
-                                cap_count: token().parse().unwrap(),
-                                unrated: token() == "1",
-                                tournament: token() == "1",
-                            },
-                        }),
-                        "Remove" => Message::RemoveGame(token().parse().unwrap()),
-                        _ => unreachable!(),
-                    },
-                    "Game" => match token() {
-                        "Start" => Message::StartGame(token().parse().unwrap()),
-                        id => todo!(),
-                    },
-                    "Online" => Message::Online(token().parse().unwrap()),
-                    "Welcome" => Message::LoggedIn(rest.strip_suffix(|_| true).unwrap().into()),
-                    "Welcome!" | "Login" => Message::Message(text.into()),
-                    "Message" => Message::Message(rest.into()),
-                    "Error" => Message::Error(rest.into()),
-                    _ => Message::Unknown(text.into()),
-                };
+                let mut message = text.parse().unwrap();
 
                 'process_message: loop {
                     {
@@ -542,4 +472,87 @@ pub enum Message {
     Message(String),
     Error(String),
     Unknown(String),
+}
+
+impl FromStr for Message {
+    type Err = Box<dyn Error>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (command, rest) = s.split_once([' ', '#', ':']).unwrap_or((s, ""));
+        let mut tokens = rest.split(' ');
+        let mut token = || tokens.next().ok_or("unexpected end of tokens");
+
+        Ok(match command {
+            "OK" => Message::Ok,
+            "NOK" => Message::NotOk,
+            "Seek" => match token()? {
+                "new" => Message::AddSeek(Seek {
+                    id: token()?.parse()?,
+                    seeker: token()?.into(),
+                    params: {
+                        let size = token()?.parse()?;
+                        let initial_time = Duration::from_secs(token()?.parse()?);
+                        let increment = Duration::from_secs(token()?.parse()?);
+                        SeekParameters {
+                            color: match token()? {
+                                "A" => Color::Any,
+                                "W" => Color::White,
+                                "B" => Color::Black,
+                                _ => Err("unknown color")?,
+                            },
+                            params: GameParameters {
+                                size,
+                                initial_time,
+                                increment,
+                                half_komi: token()?.parse()?,
+                                flat_count: token()?.parse()?,
+                                cap_count: token()?.parse()?,
+                                unrated: token()? == "1",
+                                tournament: token()? == "1",
+                            },
+                            opponent: match token()? {
+                                "" => None,
+                                name => Some(name.into()),
+                            },
+                        }
+                    },
+                }),
+                "remove" => Message::RemoveSeek(token()?.parse()?),
+                _ => Err("unexpected \"Seek\" message sub-type")?,
+            },
+            "GameList" => match token()? {
+                "Add" => Message::AddGame(Game {
+                    id: token()?.parse()?,
+                    white: token()?.into(),
+                    black: token()?.into(),
+                    params: GameParameters {
+                        size: token()?.parse()?,
+                        initial_time: Duration::from_secs(token()?.parse()?),
+                        increment: Duration::from_secs(token()?.parse()?),
+                        half_komi: token()?.parse()?,
+                        flat_count: token()?.parse()?,
+                        cap_count: token()?.parse()?,
+                        unrated: token()? == "1",
+                        tournament: token()? == "1",
+                    },
+                }),
+                "Remove" => Message::RemoveGame(token()?.parse()?),
+                _ => Err("unexpected \"GameList\" message sub-type")?,
+            },
+            "Game" => match token()? {
+                "Start" => Message::StartGame(token()?.parse()?),
+                id => todo!(),
+            },
+            "Online" => Message::Online(token()?.parse()?),
+            "Welcome" => Message::LoggedIn(
+                rest.strip_suffix(|c| c == '!')
+                    .ok_or("missing exclamation mark after username")?
+                    .into(),
+            ),
+            "Welcome!" | "Login" => Message::Message(s.into()),
+            "Message" => Message::Message(rest.into()),
+            "Error" => Message::Error(rest.into()),
+            _ => Message::Unknown(s.into()),
+        })
+    }
 }
