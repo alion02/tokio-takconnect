@@ -444,6 +444,7 @@ enum Request {
     Client(String),
     Protocol(u32),
     Login(String, String),
+    Ping,
     Seek(SeekParameters),
 }
 
@@ -453,6 +454,7 @@ impl Display for Request {
             Self::Client(name) => write!(f, "Client {name}"),
             Self::Protocol(version) => write!(f, "Protocol {version}"),
             Self::Login(name, secret) => write!(f, "Login {name} {secret}"),
+            Self::Ping => "PING".fmt(f),
             Self::Seek(seek) => {
                 let params = &seek.params;
                 write!(
