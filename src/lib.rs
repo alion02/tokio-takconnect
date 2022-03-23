@@ -292,7 +292,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn is_guest(&self) -> bool {
+    fn is_guest(&self) -> bool {
         self.username == "Guest"
     }
 
@@ -459,7 +459,7 @@ pub enum Color {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Message {
+enum Message {
     Ok,
     NotOk,
     LoggedIn(String),
