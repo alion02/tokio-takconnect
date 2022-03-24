@@ -58,7 +58,7 @@ async fn internal_connect(
     append_lib_name: bool,
     ping_interval: Duration,
 ) -> Result<Client, Box<dyn Error>> {
-    let (tx, mut rx) = unbounded_channel::<(String, _)>();
+    let (tx, mut rx) = unbounded_channel::<SentRequest>();
 
     {
         info!("Establishing WebSocket Secure connnection to Playtak server");
@@ -68,20 +68,20 @@ async fn internal_connect(
             .0
             .split();
 
-        let queue = Arc::new(Mutex::new(VecDeque::<Interceptor>::new()));
+        let queue = Arc::new(Mutex::new(VecDeque::<SentRequest>::new()));
         {
             let queue = queue.clone();
             spawn(async move {
-                while let Some((message, tx)) = rx.recv().await {
+                while let Some(request) = rx.recv().await {
                     {
                         let mut queue = queue.lock();
                         let backlog = queue.len();
                         if backlog != 0 {
                             debug!("Sending a command while awaiting response(s) to {backlog} previous command(s)");
                         }
-                        queue.push_back(tx);
+                        queue.push_back(request);
                     }
-                    stream.0.send(message.into()).await.unwrap(); // Is this cancellation safe?
+                    stream.0.send(request.0.to_string().into()).await.unwrap();
                 }
 
                 debug!("Closing Playtak connection");
@@ -101,8 +101,8 @@ async fn internal_connect(
                         let mut queue = queue.lock();
                         let mut i = 0;
                         while i < queue.len() {
-                            let interceptor = &mut queue[i];
-                            let result = interceptor(message);
+                            let request = &mut queue[i];
+                            let result = request.feed(message);
 
                             if result.finished {
                                 queue.remove(i);
@@ -190,21 +190,23 @@ async fn internal_connect(
     };
 
     let (a, b, c) = join!(
-        client.send(format!("Client {client_name}")),
-        client.send("Protocol 1".into()),
-        client.send(format!("Login {} {}", client.username, client.password)),
+        Request::Client(client_name).send(&client.tx)?.recv(),
+        Request::Protocol(1).send(&client.tx)?.recv(),
+        Request::Login(client.username, client.password)
+            .send(&client.tx)?
+            .recv(),
     );
 
-    if a != Message::Ok {
+    if a != Some(Message::Ok) {
         warn!("Playtak rejected client name \"{client_name}\"");
     }
-    if b != Message::Ok {
-        return Err("Playtak rejected protocol upgrade to version 1".into());
+    if b != Some(Message::Ok) {
+        Err("Playtak rejected protocol upgrade to version 1")?;
     }
     let _username = match c {
-        Message::LoggedIn(name) => Ok(name),
-        _ => Err("Failed to log in with the provided credentials"),
-    }?;
+        Some(Message::LoggedIn(name)) => name,
+        _ => Err("Failed to log in with the provided credentials")?,
+    };
 
     info!("Pinging every {ping_interval:?}");
 
@@ -218,7 +220,7 @@ async fn internal_connect(
                 }
                 _ = interval.tick() => {
                     let time = Instant::now();
-                    let mut rx = send(&tx, "PING".into());
+                    let mut rx = Request::Ping.send(&tx).unwrap();
                     spawn(async move {
                         if rx.recv().await.unwrap() != Message::Ok {
                             warn!("Playtak rejected PING");
@@ -235,26 +237,7 @@ async fn internal_connect(
     Ok(client)
 }
 
-type MasterSender = UnboundedSender<(String, Interceptor)>;
-
-fn send(tx: &MasterSender, s: String) -> UnboundedReceiver<Message> {
-    let (response_tx, rx) = unbounded_channel();
-
-    tx.send((
-        s,
-        interceptor(move |m| match m {
-            Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
-                response_tx.send(m).unwrap();
-                InterceptionResult::finish()
-            }
-            _ => InterceptionResult::ignore(m),
-        }),
-    ))
-    .ok()
-    .unwrap();
-
-    rx
-}
+type MasterSender = UnboundedSender<SentRequest>;
 
 trait InterceptorTrait: FnMut(Message) -> InterceptionResult + Send {}
 impl<T: FnMut(Message) -> InterceptionResult + Send> InterceptorTrait for T {}
@@ -315,15 +298,9 @@ impl Client {
         self.username == "Guest"
     }
 
-    async fn send(&self, s: String) -> Message {
-        send(&self.tx, s).recv().await.unwrap()
-    }
-
     pub async fn seek(&self, seek: SeekParameters) -> Result<(), Box<dyn Error>> {
-        match self.send(Request::Seek(seek).to_string()).await {
-            Message::Ok => Ok(()),
-            Message::NotOk => Err("Playtak rejected the seek".into()),
-            _ => unreachable!(),
+        match Request::Seek(seek).send(&self.tx)?.recv().await {
+            _ => todo!(),
         }
     }
 }
@@ -464,6 +441,23 @@ enum Request {
     Login(String, String),
     Ping,
     Seek(SeekParameters),
+}
+
+#[derive(Debug)]
+struct SentRequest(pub Request, pub UnboundedSender<Message>);
+
+impl SentRequest {
+    pub fn feed(&self, message: Message) -> InterceptionResult {
+        todo!()
+    }
+}
+
+impl Request {
+    pub fn send(self, tx: &MasterSender) -> Result<UnboundedReceiver<Message>, Box<dyn Error>> {
+        let c = unbounded_channel();
+        tx.send(SentRequest(self, c.0))?;
+        Ok(c.1)
+    }
 }
 
 impl Display for Request {
