@@ -93,28 +93,23 @@ async fn internal_connect(
             let mut seeks = HashSet::new();
             let mut games = HashSet::new();
 
-            'next_message: while let Some(Ok(text)) = stream.1.next().await {
+            while let Some(Ok(text)) = stream.1.next().await {
                 let text = text.to_text().unwrap().strip_suffix(|_| true).unwrap();
                 let mut message = text.parse().unwrap();
 
                 {
                     let mut queue = queue.lock();
-                    let mut i = 0;
-                    while i < queue.len() {
-                        let request = &mut queue[i];
-                        let result = request.feed(message);
+                    let request = queue.front_mut().unwrap();
+                    let result = request.feed(message);
 
-                        if result.finished {
-                            queue.remove(i);
-                        } else {
-                            i += 1;
-                        }
+                    if result.finished {
+                        queue.pop_front();
+                    }
 
-                        if let Some(returned_message) = result.message {
-                            message = returned_message;
-                        } else {
-                            continue 'next_message;
-                        }
+                    if let Some(returned_message) = result.message {
+                        message = returned_message;
+                    } else {
+                        continue;
                     }
                 }
 
