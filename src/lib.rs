@@ -93,68 +93,65 @@ async fn internal_connect(
             let mut seeks = HashSet::new();
             let mut games = HashSet::new();
 
-            while let Some(Ok(text)) = stream.1.next().await {
+            'next_message: while let Some(Ok(text)) = stream.1.next().await {
                 let text = text.to_text().unwrap().strip_suffix(|_| true).unwrap();
                 let mut message = text.parse().unwrap();
 
-                'process_message: loop {
-                    {
-                        let mut queue = queue.lock();
-                        let mut i = 0;
-                        while i < queue.len() {
-                            let request = &mut queue[i];
-                            let result = request.feed(message);
+                {
+                    let mut queue = queue.lock();
+                    let mut i = 0;
+                    while i < queue.len() {
+                        let request = &mut queue[i];
+                        let result = request.feed(message);
 
-                            if result.finished {
-                                queue.remove(i);
-                            } else {
-                                i += 1;
-                            }
+                        if result.finished {
+                            queue.remove(i);
+                        } else {
+                            i += 1;
+                        }
 
-                            if let Some(returned_message) = result.message {
-                                message = returned_message;
-                            } else {
-                                break 'process_message;
-                            }
+                        if let Some(returned_message) = result.message {
+                            message = returned_message;
+                        } else {
+                            continue 'next_message;
                         }
                     }
-
-                    match message {
-                        Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
-                            warn!("Confirmation message \"{text}\" was discarded");
-                        }
-                        Message::AddSeek(seek) => {
-                            debug!("Adding {seek:?}");
-                            if !seeks.insert(seek) {
-                                error!("Seek ID collision detected")
-                            }
-                        }
-                        Message::RemoveSeek(id) => {
-                            debug!("Removing seek {id}");
-                            if !seeks.remove(&id) {
-                                error!("Attempted to remove nonexistent seek")
-                            }
-                        }
-                        Message::AddGame(game) => {
-                            debug!("Adding {game:?}");
-                            if !games.insert(game) {
-                                error!("Game ID collision detected")
-                            }
-                        }
-                        Message::RemoveGame(id) => {
-                            debug!("Removing game {id}");
-                            if !games.remove(&id) {
-                                error!("Attempted to remove nonexistent game")
-                            }
-                        }
-                        Message::StartGame(id) => todo!(),
-                        Message::Online(count) => debug!("Online: {count}"),
-                        Message::Message(text) => debug!("Ignoring server message \"{text}\""),
-                        Message::Error(text) => warn!("Ignoring error message \"{text}\""),
-                        Message::Unknown(text) => warn!("Ignoring unknown message \"{text}\""),
-                    };
-                    break;
                 }
+
+                match message {
+                    Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
+                        warn!("Confirmation message \"{text}\" was discarded");
+                    }
+                    Message::AddSeek(seek) => {
+                        debug!("Adding {seek:?}");
+                        if !seeks.insert(seek) {
+                            error!("Seek ID collision detected")
+                        }
+                    }
+                    Message::RemoveSeek(id) => {
+                        debug!("Removing seek {id}");
+                        if !seeks.remove(&id) {
+                            error!("Attempted to remove nonexistent seek")
+                        }
+                    }
+                    Message::AddGame(game) => {
+                        debug!("Adding {game:?}");
+                        if !games.insert(game) {
+                            error!("Game ID collision detected")
+                        }
+                    }
+                    Message::RemoveGame(id) => {
+                        debug!("Removing game {id}");
+                        if !games.remove(&id) {
+                            error!("Attempted to remove nonexistent game")
+                        }
+                    }
+                    Message::StartGame(id) => todo!(),
+                    Message::Online(count) => debug!("Online: {count}"),
+                    Message::Message(text) => debug!("Ignoring server message \"{text}\""),
+                    Message::Error(text) => warn!("Ignoring error message \"{text}\""),
+                    Message::Unknown(text) => warn!("Ignoring unknown message \"{text}\""),
+                };
             }
 
             debug!("Connection closed");
