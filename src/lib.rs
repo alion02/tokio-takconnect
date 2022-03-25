@@ -208,9 +208,9 @@ async fn internal_connect(
                     }
                     _ = interval.tick() => {
                         let time = Instant::now();
-                        let mut rx = Request::Ping.send(&tx).unwrap();
+                        let rx = Request::Ping.send(&tx).unwrap();
                         spawn(async move {
-                            if rx.await.is_ok() {
+                            if rx.await.is_err() {
                                 warn!("Playtak rejected PING");
                             }
                             debug!("Ping: {}ms", time.elapsed().as_millis());
