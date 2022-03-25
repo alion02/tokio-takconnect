@@ -99,17 +99,18 @@ async fn internal_connect(
 
                 {
                     let mut queue = queue.lock();
-                    let request = queue.front_mut().unwrap();
-                    let result = request.feed(message);
+                    if let Some(request) = queue.front_mut() {
+                        let result = request.feed(message);
 
-                    if result.finished {
-                        queue.pop_front();
-                    }
+                        if result.finished {
+                            queue.pop_front();
+                        }
 
-                    if let Some(returned_message) = result.message {
-                        message = returned_message;
-                    } else {
-                        continue;
+                        if let Some(returned_message) = result.message {
+                            message = returned_message;
+                        } else {
+                            continue;
+                        }
                     }
                 }
 
