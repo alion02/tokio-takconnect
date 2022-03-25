@@ -273,9 +273,7 @@ pub struct Client {
 
 impl Client {
     pub async fn seek(&self, seek: SeekParameters) -> Result<(), Box<dyn Error>> {
-        match Request::Seek(seek).send(&self.tx)?.await {
-            _ => todo!(),
-        }
+        Request::Seek(seek).send(&self.tx)?.await
     }
 }
 
