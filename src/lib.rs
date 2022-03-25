@@ -100,7 +100,14 @@ async fn internal_connect(
                 {
                     let mut queue = queue.lock();
                     if let Some(request) = queue.front_mut() {
-                        let result = request.feed(message);
+                        let SentRequest(request, tx) = request;
+                        let result = match message {
+                            Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
+                                tx.send(message).unwrap();
+                                InterceptionResult::finish()
+                            }
+                            _ => InterceptionResult::ignore(message),
+                        };
 
                         if result.finished {
                             queue.pop_front();
@@ -417,19 +424,6 @@ enum Request {
 
 #[derive(Debug)]
 struct SentRequest(pub Request, pub UnboundedSender<Message>);
-
-impl SentRequest {
-    pub fn feed(&self, message: Message) -> InterceptionResult {
-        let Self(request, tx) = self;
-        match message {
-            Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
-                tx.send(message).unwrap();
-                InterceptionResult::finish()
-            }
-            _ => InterceptionResult::ignore(message),
-        }
-    }
-}
 
 impl Request {
     pub fn send(
