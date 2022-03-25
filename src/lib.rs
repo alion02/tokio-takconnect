@@ -101,19 +101,20 @@ async fn internal_connect(
                     let mut queue = queue.lock();
                     if let Some(request) = queue.front_mut() {
                         let SentRequest(request, tx) = request;
-                        let result = match message {
+
+                        let (finished, returned) = match message {
                             Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
                                 tx.send(message).unwrap();
-                                InterceptionResult::finish()
+                                (true, None)
                             }
-                            _ => InterceptionResult::ignore(message),
+                            _ => (false, Some(message)),
                         };
 
-                        if result.finished {
+                        if finished {
                             queue.pop_front();
                         }
 
-                        if let Some(returned_message) = result.message {
+                        if let Some(returned_message) = returned {
                             message = returned_message;
                         } else {
                             continue;
@@ -234,42 +235,6 @@ async fn internal_connect(
 }
 
 type MasterSender = UnboundedSender<SentRequest>;
-
-#[derive(Debug)]
-struct InterceptionResult {
-    message: Option<Message>,
-    finished: bool,
-}
-
-impl InterceptionResult {
-    fn ignore(message: Message) -> Self {
-        Self {
-            message: Some(message),
-            finished: false,
-        }
-    }
-
-    fn consume() -> Self {
-        Self {
-            message: None,
-            finished: false,
-        }
-    }
-
-    fn give_up(message: Message) -> Self {
-        Self {
-            message: Some(message),
-            finished: true,
-        }
-    }
-
-    fn finish() -> Self {
-        Self {
-            message: None,
-            finished: true,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct Client {
