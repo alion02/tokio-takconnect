@@ -175,23 +175,22 @@ async fn internal_connect(
         client_name.into()
     };
 
-    let [mut a, mut b, mut c] = [
+    let [a, b, c] = [
         Request::Client(client_name),
         Request::Protocol(1),
         Request::Login(pseudo_username, password),
     ]
     .map(|r| r.send(&tx).unwrap());
-    let (a, b, c) = join!(a.recv(), b.recv(), c.recv());
+    let (a, b, c) = join!(a, b, c);
 
-    if a != Some(Message::Ok) {
+    if a.is_err() {
         warn!("Playtak rejected provided client name");
     }
-    if b != Some(Message::Ok) {
+    if b.is_err() {
         Err("Playtak rejected protocol upgrade to version 1")?;
     }
-    let _username = match c {
-        Some(Message::LoggedIn(name)) => name,
-        _ => Err("Failed to log in with the provided credentials")?,
+    if c.is_err() {
+        Err("Failed to log in with the provided credentials")?;
     };
 
     info!("Pinging every {ping_interval:?}");
@@ -210,7 +209,7 @@ async fn internal_connect(
                         let time = Instant::now();
                         let mut rx = Request::Ping.send(&tx).unwrap();
                         spawn(async move {
-                            if rx.recv().await.unwrap() != Message::Ok {
+                            if rx.await.is_ok() {
                                 warn!("Playtak rejected PING");
                             }
                             debug!("Ping: {}ms", time.elapsed().as_millis());
@@ -273,7 +272,7 @@ pub struct Client {
 
 impl Client {
     pub async fn seek(&self, seek: SeekParameters) -> Result<(), Box<dyn Error>> {
-        match Request::Seek(seek).send(&self.tx)?.recv().await {
+        match Request::Seek(seek).send(&self.tx)?.await {
             _ => todo!(),
         }
     }
@@ -434,10 +433,23 @@ impl SentRequest {
 }
 
 impl Request {
-    pub fn send(self, tx: &MasterSender) -> Result<UnboundedReceiver<Message>, Box<dyn Error>> {
+    pub fn send(
+        self,
+        tx: &MasterSender,
+    ) -> Result<impl Future<Output = Result<(), Box<dyn Error>>>, Box<dyn Error>> {
         let c = unbounded_channel();
         tx.send(SentRequest(self, c.0))?;
-        Ok(c.1)
+        Ok(async move {
+            let mut rx = c.1;
+            while let Some(message) = rx.recv().await {
+                match message {
+                    Message::NotOk => Err("Received \"NOK\"")?,
+                    Message::Error(e) => Err(e)?,
+                    _ => (),
+                }
+            }
+            Ok(())
+        })
     }
 }
 
