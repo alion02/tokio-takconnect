@@ -93,6 +93,8 @@ async fn internal_connect(
             let mut seeks = HashSet::new();
             let mut games = HashSet::new();
 
+            let mut username = None;
+
             while let Some(Ok(text)) = stream.1.next().await {
                 let text = text.to_text().unwrap().strip_suffix(|_| true).unwrap();
                 let mut message = text.parse().unwrap();
@@ -103,8 +105,13 @@ async fn internal_connect(
                         let SentRequest(request, tx) = request;
 
                         let (finished, returned) = match message {
-                            Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
-                                tx.send(message).unwrap();
+                            Message::Ok | Message::NotOk => {
+                                tx.send(Some(message)).unwrap();
+                                (true, None)
+                            }
+                            Message::LoggedIn(n) => {
+                                username = Some(n);
+                                tx.send(None).unwrap();
                                 (true, None)
                             }
                             _ => (false, Some(message)),
@@ -388,7 +395,7 @@ enum Request {
 }
 
 #[derive(Debug)]
-struct SentRequest(pub Request, pub UnboundedSender<Message>);
+struct SentRequest(pub Request, pub UnboundedSender<Option<Message>>);
 
 impl Request {
     pub fn send(
@@ -399,11 +406,13 @@ impl Request {
         tx.send(SentRequest(self, c.0))?;
         Ok(async move {
             let mut rx = c.1;
-            while let Some(message) = rx.recv().await {
-                match message {
-                    Message::NotOk => Err("Received \"NOK\"")?,
-                    Message::Error(e) => Err(e)?,
-                    _ => (),
+            while let Some(maybe_message) = rx.recv().await {
+                if let Some(message) = maybe_message {
+                    match message {
+                        Message::NotOk => Err("Received \"NOK\"")?,
+                        Message::Error(e) => Err(e)?,
+                        _ => (),
+                    }
                 }
             }
             Ok(())
