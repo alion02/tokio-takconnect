@@ -73,6 +73,7 @@ async fn internal_connect(
             let queue = queue.clone();
             spawn(async move {
                 while let Some(request) = rx.recv().await {
+                    let s = request.0.to_string();
                     {
                         let mut queue = queue.lock();
                         let backlog = queue.len();
@@ -81,7 +82,7 @@ async fn internal_connect(
                         }
                         queue.push_back(request);
                     }
-                    stream.0.send(request.0.to_string().into()).await.unwrap();
+                    stream.0.send(s.into()).await.unwrap();
                 }
 
                 debug!("Closing Playtak connection");
@@ -162,19 +163,12 @@ async fn internal_connect(
 
     let (_ping_tx, mut ping_rx) = channel::<()>();
 
-    let client = Client {
-        username: pseudo_username,
-        password,
-        tx: tx.clone(),
-        _ping_tx,
-    };
-
     info!(
         "Logging in as {}",
-        if client.is_guest() {
+        if pseudo_username == "Guest" {
             "a guest".into()
         } else {
-            format!("\"{}\"", client.username)
+            format!("\"{}\"", pseudo_username)
         }
     );
 
@@ -189,16 +183,16 @@ async fn internal_connect(
         client_name.into()
     };
 
-    let (a, b, c) = join!(
-        Request::Client(client_name).send(&client.tx)?.recv(),
-        Request::Protocol(1).send(&client.tx)?.recv(),
-        Request::Login(client.username, client.password)
-            .send(&client.tx)?
-            .recv(),
-    );
+    let [mut a, mut b, mut c] = [
+        Request::Client(client_name),
+        Request::Protocol(1),
+        Request::Login(pseudo_username, password),
+    ]
+    .map(|r| r.send(&tx).unwrap());
+    let (a, b, c) = join!(a.recv(), b.recv(), c.recv());
 
     if a != Some(Message::Ok) {
-        warn!("Playtak rejected client name \"{client_name}\"");
+        warn!("Playtak rejected provided client name");
     }
     if b != Some(Message::Ok) {
         Err("Playtak rejected protocol upgrade to version 1")?;
@@ -210,43 +204,37 @@ async fn internal_connect(
 
     info!("Pinging every {ping_interval:?}");
 
-    spawn(async move {
-        let mut interval = interval(ping_interval);
-        loop {
-            select! {
-                biased;
-                _ = &mut ping_rx => {
-                    break;
-                }
-                _ = interval.tick() => {
-                    let time = Instant::now();
-                    let mut rx = Request::Ping.send(&tx).unwrap();
-                    spawn(async move {
-                        if rx.recv().await.unwrap() != Message::Ok {
-                            warn!("Playtak rejected PING");
-                        }
-                        debug!("Ping: {}ms", time.elapsed().as_millis());
-                    });
+    {
+        let tx = tx.clone();
+        spawn(async move {
+            let mut interval = interval(ping_interval);
+            loop {
+                select! {
+                    biased;
+                    _ = &mut ping_rx => {
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        let time = Instant::now();
+                        let mut rx = Request::Ping.send(&tx).unwrap();
+                        spawn(async move {
+                            if rx.recv().await.unwrap() != Message::Ok {
+                                warn!("Playtak rejected PING");
+                            }
+                            debug!("Ping: {}ms", time.elapsed().as_millis());
+                        });
+                    }
                 }
             }
-        }
-    });
+        });
+    }
 
     info!("Client ready");
 
-    Ok(client)
+    Ok(Client { tx, _ping_tx })
 }
 
 type MasterSender = UnboundedSender<SentRequest>;
-
-trait InterceptorTrait: FnMut(Message) -> InterceptionResult + Send {}
-impl<T: FnMut(Message) -> InterceptionResult + Send> InterceptorTrait for T {}
-
-type Interceptor = Box<dyn InterceptorTrait>;
-
-fn interceptor<F: 'static + InterceptorTrait>(f: F) -> Interceptor {
-    Box::new(f)
-}
 
 #[derive(Debug)]
 struct InterceptionResult {
@@ -287,17 +275,11 @@ impl InterceptionResult {
 #[derive(Debug)]
 pub struct Client {
     // hi, it's past alion, remember that you don't receive moves you send
-    username: String,
-    password: String,
     tx: MasterSender,
     _ping_tx: Sender<()>,
 }
 
 impl Client {
-    fn is_guest(&self) -> bool {
-        self.username == "Guest"
-    }
-
     pub async fn seek(&self, seek: SeekParameters) -> Result<(), Box<dyn Error>> {
         match Request::Seek(seek).send(&self.tx)?.recv().await {
             _ => todo!(),
