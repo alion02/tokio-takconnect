@@ -430,7 +430,14 @@ struct SentRequest(pub Request, pub UnboundedSender<Message>);
 
 impl SentRequest {
     pub fn feed(&self, message: Message) -> InterceptionResult {
-        todo!()
+        let Self(request, tx) = self;
+        match message {
+            Message::Ok | Message::NotOk | Message::LoggedIn(_) => {
+                tx.send(message).unwrap();
+                InterceptionResult::finish()
+            }
+            _ => InterceptionResult::ignore(message),
+        }
     }
 }
 
