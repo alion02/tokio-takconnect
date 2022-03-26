@@ -90,18 +90,20 @@ async fn internal_connect(
             });
         }
         spawn(async move {
-            let mut seeks = HashSet::new();
-            let mut games = HashSet::new();
+            let mut seeks = HashSet::<Seek>::new();
+            let mut games = HashSet::<Game>::new();
 
             let mut username = None;
 
             while let Some(Ok(text)) = stream.1.next().await {
+                let is_me = |seeker: &String| seeker == username.as_ref().unwrap();
+
                 let text = text.to_text().unwrap().strip_suffix(|_| true).unwrap();
                 let mut message = text.parse().unwrap();
 
                 {
                     let mut queue = queue.lock();
-                    if let Some(SentRequest(request, _)) = queue.front_mut() {
+                    if let Some(SentRequest(_request, _)) = queue.front_mut() {
                         let (response, returned) = match message {
                             Message::Ok => (Some(Ok(())), None),
                             Message::NotOk => (Some(Err("Rejected".into())), None),
@@ -109,17 +111,16 @@ async fn internal_connect(
                                 username = Some(name);
                                 (Some(Ok(())), None)
                             }
+                            Message::AddSeek(ref seek) if is_me(&seek.seeker) => {
+                                (Some(Ok(())), Some(message))
+                            }
+                            // Message::RemoveSeek(id)
+                            //     if matches!(request, Request::Seek(_))
+                            //         && is_me(&seeks.get(&id).unwrap().seeker) =>
+                            // {
+                            //     (None, Some(message))
+                            // }
                             _ => (None, Some(message)),
-                            // Message::Ok => | Message::NotOk => {
-                            //     tx.send(Some(message)).unwrap();
-                            //     (true, None)
-                            // }
-                            // Message::LoggedIn(n) => {
-                            //     username = Some(n);
-                            //     tx.send(None).unwrap();
-                            //     (true, None)
-                            // }
-                            // _ => (false, Some(message)),
                         };
 
                         if let Some(result) = response {
