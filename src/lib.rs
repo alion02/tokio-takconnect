@@ -101,24 +101,29 @@ async fn internal_connect(
 
                 {
                     let mut queue = queue.lock();
-                    if let Some(request) = queue.front_mut() {
-                        let SentRequest(request, tx) = request;
-
-                        let (finished, returned) = match message {
-                            Message::Ok | Message::NotOk => {
-                                tx.send(Some(message)).unwrap();
-                                (true, None)
+                    if let Some(SentRequest(request, _)) = queue.front_mut() {
+                        let (response, returned) = match message {
+                            Message::Ok => (Some(Ok(())), None),
+                            Message::NotOk => (Some(Err("Rejected".into())), None),
+                            Message::LoggedIn(name) => {
+                                username = Some(name);
+                                (Some(Ok(())), None)
                             }
-                            Message::LoggedIn(n) => {
-                                username = Some(n);
-                                tx.send(None).unwrap();
-                                (true, None)
-                            }
-                            _ => (false, Some(message)),
+                            _ => (None, Some(message)),
+                            // Message::Ok => | Message::NotOk => {
+                            //     tx.send(Some(message)).unwrap();
+                            //     (true, None)
+                            // }
+                            // Message::LoggedIn(n) => {
+                            //     username = Some(n);
+                            //     tx.send(None).unwrap();
+                            //     (true, None)
+                            // }
+                            // _ => (false, Some(message)),
                         };
 
-                        if finished {
-                            queue.pop_front();
+                        if let Some(result) = response {
+                            queue.pop_front().unwrap().1.send(result).unwrap();
                         }
 
                         if let Some(returned_message) = returned {
@@ -251,7 +256,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn seek(&self, seek: SeekParameters) -> Result<(), Box<dyn Error>> {
+    pub async fn seek(&self, seek: SeekParameters) -> Result<(), Box<dyn Error + Send + Sync>> {
         Request::Seek(seek).send(&self.tx)?.await
     }
 }
@@ -395,28 +400,22 @@ enum Request {
 }
 
 #[derive(Debug)]
-struct SentRequest(pub Request, pub UnboundedSender<Option<Message>>);
+struct SentRequest(
+    pub Request,
+    pub Sender<Result<(), Box<dyn Error + Send + Sync>>>,
+);
 
 impl Request {
     pub fn send(
         self,
         tx: &MasterSender,
-    ) -> Result<impl Future<Output = Result<(), Box<dyn Error>>>, Box<dyn Error>> {
-        let c = unbounded_channel();
+    ) -> Result<
+        impl Future<Output = Result<(), Box<dyn Error + Send + Sync>>>,
+        Box<dyn Error + Send + Sync>,
+    > {
+        let c = channel();
         tx.send(SentRequest(self, c.0))?;
-        Ok(async move {
-            let mut rx = c.1;
-            while let Some(maybe_message) = rx.recv().await {
-                if let Some(message) = maybe_message {
-                    match message {
-                        Message::NotOk => Err("Received \"NOK\"")?,
-                        Message::Error(e) => Err(e)?,
-                        _ => (),
-                    }
-                }
-            }
-            Ok(())
-        })
+        Ok(async move { c.1.await? })
     }
 }
 
