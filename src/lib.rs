@@ -231,9 +231,10 @@ async fn internal_connect(
                         let rx = Request::Ping.send(&tx).unwrap();
                         spawn(async move {
                             if rx.await.is_err() {
-                                warn!("Playtak rejected PING");
+                                warn!("Ping failed");
+                            } else {
+                                debug!("Ping: {}ms", time.elapsed().as_millis());
                             }
-                            debug!("Ping: {}ms", time.elapsed().as_millis());
                         });
                     }
                 }
