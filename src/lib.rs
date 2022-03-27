@@ -1,6 +1,6 @@
 use std::{
     borrow::Borrow,
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     error::Error,
     fmt::{Display, Formatter, Result as FmtResult},
     hash::{Hash, Hasher},
@@ -8,6 +8,8 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+
+use takparse::Move;
 
 use futures::{
     stream::{self, SplitSink},
@@ -59,6 +61,7 @@ async fn internal_connect(
     ping_interval: Duration,
 ) -> Result<Client, Box<dyn Error>> {
     let (tx, mut rx) = unbounded_channel::<SentRequest>();
+    let (start_tx, start_rx) = unbounded_channel();
 
     {
         info!("Establishing WebSocket Secure connnection to Playtak server");
@@ -92,6 +95,8 @@ async fn internal_connect(
         spawn(async move {
             let mut seeks = HashSet::<Seek>::new();
             let mut games = HashSet::<Game>::new();
+
+            let mut game_channels = HashMap::new();
 
             let mut username = None;
 
@@ -163,7 +168,11 @@ async fn internal_connect(
                             error!("Attempted to remove nonexistent game")
                         }
                     }
-                    Message::StartGame(id) => todo!(),
+                    Message::StartGame(id) => {
+                        let (update_tx, update_rx) = unbounded_channel();
+                        game_channels.insert(id, update_tx);
+                        start_tx.send(update_rx).unwrap()
+                    }
                     Message::Online(count) => debug!("Online: {count}"),
                     Message::Message(text) => debug!("Ignoring server message \"{text}\""),
                     Message::Error(text) => warn!("Ignoring error message \"{text}\""),
@@ -245,7 +254,11 @@ async fn internal_connect(
 
     info!("Client ready");
 
-    Ok(Client { tx, _ping_tx })
+    Ok(Client {
+        tx,
+        _ping_tx,
+        start_rx,
+    })
 }
 
 type MasterSender = UnboundedSender<SentRequest>;
@@ -255,13 +268,50 @@ pub struct Client {
     // hi, it's past alion, remember that you don't receive moves you send
     tx: MasterSender,
     _ping_tx: Sender<()>,
+    start_rx: UnboundedReceiver<UnboundedReceiver<GameUpdate>>,
 }
 
 impl Client {
     pub async fn seek(&self, seek: SeekParameters) -> Result<(), Box<dyn Error + Send + Sync>> {
         Request::Seek(seek).send(&self.tx)?.await
     }
+
+    pub async fn game(&mut self) -> Result<ActiveGame<'_>, Box<dyn Error + Send + Sync>> {
+        let update_rx = self.start_rx.recv().await.ok_or(ConnectionClosed)?;
+        Ok(ActiveGame {
+            client: self,
+            update_rx,
+        })
+    }
 }
+
+pub struct ActiveGame<'a> {
+    client: &'a Client,
+    update_rx: UnboundedReceiver<GameUpdate>,
+}
+
+impl<'a> ActiveGame<'a> {
+    pub async fn update(&mut self) -> Result<GameUpdate, Box<dyn Error + Send + Sync>> {
+        Ok(self.update_rx.recv().await.ok_or(ConnectionClosed)?)
+    }
+
+    pub async fn play(&self, r#move: Move) -> Result<(), Box<dyn Error + Send + Sync>> {
+        todo!()
+    }
+}
+
+pub struct GameUpdate {}
+
+#[derive(Debug)]
+pub struct ConnectionClosed;
+
+impl Display for ConnectionClosed {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        "Connection closed".fmt(f)
+    }
+}
+
+impl Error for ConnectionClosed {}
 
 #[derive(Debug)]
 pub struct Seek {
