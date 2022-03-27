@@ -96,7 +96,7 @@ async fn internal_connect(
             let mut seeks = HashSet::<Seek>::new();
             let mut games = HashSet::<Game>::new();
 
-            let mut game_channels = HashMap::new();
+            let mut active_games = HashMap::new();
 
             let mut username = None;
 
@@ -170,8 +170,14 @@ async fn internal_connect(
                     }
                     Message::StartGame(id) => {
                         let (update_tx, update_rx) = unbounded_channel();
-                        game_channels.insert(id, update_tx);
-                        start_tx.send(update_rx).unwrap()
+                        let initial_time = games.get(&id).unwrap().params.initial_time;
+                        let data = Arc::new(Mutex::new(ActiveGameData {
+                            white_remaining: initial_time,
+                            black_remaining: initial_time,
+                            last_resync: None,
+                        }));
+                        active_games.insert(id, (update_tx, data.clone()));
+                        start_tx.send((update_rx, data)).unwrap();
                     }
                     Message::Online(count) => debug!("Online: {count}"),
                     Message::Message(text) => debug!("Ignoring server message \"{text}\""),
@@ -268,7 +274,7 @@ pub struct Client {
     // hi, it's past alion, remember that you don't receive moves you send
     tx: MasterSender,
     _ping_tx: Sender<()>,
-    start_rx: UnboundedReceiver<UnboundedReceiver<GameUpdate>>,
+    start_rx: UnboundedReceiver<(UnboundedReceiver<GameUpdate>, Arc<Mutex<ActiveGameData>>)>,
 }
 
 impl Client {
@@ -277,17 +283,20 @@ impl Client {
     }
 
     pub async fn game(&mut self) -> Result<ActiveGame<'_>, Box<dyn Error + Send + Sync>> {
-        let update_rx = self.start_rx.recv().await.ok_or(ConnectionClosed)?;
+        let (update_rx, data) = self.start_rx.recv().await.ok_or(ConnectionClosed)?;
         Ok(ActiveGame {
             client: self,
             update_rx,
+            data,
         })
     }
 }
 
+#[derive(Debug)]
 pub struct ActiveGame<'a> {
     client: &'a Client,
     update_rx: UnboundedReceiver<GameUpdate>,
+    data: Arc<Mutex<ActiveGameData>>,
 }
 
 impl<'a> ActiveGame<'a> {
@@ -301,11 +310,13 @@ impl<'a> ActiveGame<'a> {
 }
 
 #[non_exhaustive]
+#[derive(Debug)]
 pub enum GameUpdate {
     Played(Move),
     Ended(GameResult),
 }
 
+#[derive(Debug)]
 pub struct GameResult;
 
 #[derive(Debug)]
@@ -318,6 +329,13 @@ impl Display for ConnectionClosed {
 }
 
 impl Error for ConnectionClosed {}
+
+#[derive(Debug)]
+struct ActiveGameData {
+    white_remaining: Duration,
+    black_remaining: Duration,
+    last_resync: Option<Instant>,
+}
 
 #[derive(Debug)]
 pub struct Seek {
