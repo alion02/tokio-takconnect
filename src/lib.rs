@@ -300,7 +300,13 @@ impl<'a> ActiveGame<'a> {
     }
 }
 
-pub struct GameUpdate {}
+#[non_exhaustive]
+pub enum GameUpdate {
+    Played(Move),
+    Ended(GameResult),
+}
+
+pub struct GameResult;
 
 #[derive(Debug)]
 pub struct ConnectionClosed;
