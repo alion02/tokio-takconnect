@@ -295,7 +295,7 @@ impl<'a> ActiveGame<'a> {
         Ok(self.update_rx.recv().await.ok_or(ConnectionClosed)?)
     }
 
-    pub async fn play(&self, r#move: Move) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn play(&self, m: Move) -> Result<(), Box<dyn Error + Send + Sync>> {
         todo!()
     }
 }
