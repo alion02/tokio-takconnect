@@ -179,6 +179,13 @@ async fn internal_connect(
                         active_games.insert(id, (update_tx, data.clone()));
                         start_tx.send((update_rx, data)).unwrap();
                     }
+                    Message::SyncClocks(id, white_remaining, black_remaining) => {
+                        *active_games.get(&id).unwrap().1.lock() = ActiveGameData {
+                            white_remaining,
+                            black_remaining,
+                            last_resync: Some(Instant::now()),
+                        };
+                    }
                     Message::Online(count) => debug!("Online: {count}"),
                     Message::Message(text) => debug!("Ignoring server message \"{text}\""),
                     Message::Error(text) => warn!("Ignoring error message \"{text}\""),
@@ -537,6 +544,7 @@ enum Message {
     AddGame(Game),
     RemoveGame(u32),
     StartGame(u32),
+    SyncClocks(u32, Duration, Duration),
     Online(u32),
     Message(String),
     Error(String),
@@ -610,7 +618,17 @@ impl FromStr for Message {
             },
             "Game" => match token()? {
                 "Start" => Message::StartGame(token()?.parse()?),
-                id => todo!(),
+                id => {
+                    let id = id.parse()?;
+                    match token()? {
+                        "Timems" => Message::SyncClocks(
+                            id,
+                            Duration::from_millis(token()?.parse()?),
+                            Duration::from_millis(token()?.parse()?),
+                        ),
+                        _ => Err("unexpected \"Game\" message sub-type")?,
+                    }
+                }
             },
             "Online" => Message::Online(token()?.parse()?),
             "Welcome" => Message::LoggedIn(
