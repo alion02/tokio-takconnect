@@ -174,7 +174,7 @@ async fn internal_connect(
                         let data = Arc::new(Mutex::new(ActiveGameData {
                             white_remaining: initial_time,
                             black_remaining: initial_time,
-                            last_resync: None,
+                            last_sync: None,
                         }));
                         active_games.insert(id, (update_tx, data.clone()));
                         start_tx.send((update_rx, data)).unwrap();
@@ -183,7 +183,7 @@ async fn internal_connect(
                         *active_games.get(&id).unwrap().1.lock() = ActiveGameData {
                             white_remaining,
                             black_remaining,
-                            last_resync: Some(Instant::now()),
+                            last_sync: Some(Instant::now()),
                         };
                     }
                     Message::Online(count) => debug!("Online: {count}"),
@@ -341,7 +341,7 @@ impl Error for ConnectionClosed {}
 struct ActiveGameData {
     white_remaining: Duration,
     black_remaining: Duration,
-    last_resync: Option<Instant>,
+    last_sync: Option<Instant>,
 }
 
 #[derive(Debug)]
