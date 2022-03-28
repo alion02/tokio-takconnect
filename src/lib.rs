@@ -32,26 +32,22 @@ use rand::{distributions::Uniform, prelude::StdRng, Rng, SeedableRng};
 
 use log::{debug, error, info, trace, warn};
 
-pub async fn connect_guest() -> Client {
-    connect().await
-}
-
-async fn connect() -> Client {
+pub async fn connect_guest() -> Result<Client, Box<dyn Error>> {
     let token = StdRng::from_entropy()
         .sample_iter(Uniform::from(b'a'..=b'z'))
         .take(20)
         .map(char::from)
         .collect::<String>();
 
-    internal_connect(
-        "Guest".into(),
-        token,
-        "unknown",
-        true,
-        Duration::from_millis(2_000),
-    )
-    .await
-    .unwrap()
+    connect("Guest".into(), token).await
+}
+
+pub async fn connect_as(username: String, password: String) -> Result<Client, Box<dyn Error>> {
+    connect(username, password).await
+}
+
+async fn connect(id: String, token: String) -> Result<Client, Box<dyn Error>> {
+    internal_connect(id, token, "unknown", true, Duration::from_millis(2_000)).await
 }
 
 async fn internal_connect(
@@ -296,7 +292,6 @@ type MasterSender = UnboundedSender<SentRequest>;
 
 #[derive(Debug)]
 pub struct Client {
-    // hi, it's past alion, remember that you don't receive moves you send
     tx: MasterSender,
     _ping_tx: Sender<()>,
     start_rx: UnboundedReceiver<(
@@ -380,7 +375,7 @@ impl FromStr for GameResult {
 }
 
 #[derive(Debug)]
-pub struct ConnectionClosed;
+struct ConnectionClosed;
 
 impl Display for ConnectionClosed {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -398,7 +393,7 @@ struct ActiveGameData {
 }
 
 #[derive(Debug)]
-pub struct Seek {
+struct Seek {
     id: u32,
     seeker: String,
     params: SeekParameters,
@@ -446,7 +441,7 @@ impl SeekParameters {
 }
 
 #[derive(Debug)]
-pub struct Game {
+struct Game {
     id: u32,
     white: String,
     black: String,
@@ -537,13 +532,10 @@ enum Request {
 }
 
 #[derive(Debug)]
-struct SentRequest(
-    pub Request,
-    pub Sender<Result<(), Box<dyn Error + Send + Sync>>>,
-);
+struct SentRequest(Request, Sender<Result<(), Box<dyn Error + Send + Sync>>>);
 
 impl Request {
-    pub fn send(
+    fn send(
         self,
         tx: &MasterSender,
     ) -> Result<
