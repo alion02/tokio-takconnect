@@ -709,7 +709,7 @@ impl FromStr for Message {
                             ),
                             "Over" => Message::GameOver(id, token()?.parse()?),
                             move_type @ ("P" | "M") => {
-                                let square = token()?.to_ascii_uppercase().parse()?;
+                                let square = token()?.to_ascii_lowercase().parse()?;
                                 Message::Play(
                                     id,
                                     Move::new(
