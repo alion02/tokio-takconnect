@@ -526,6 +526,7 @@ enum Request {
     Login(String, String),
     Ping,
     Seek(SeekParameters),
+    Play(u32, Move),
 }
 
 #[derive(Debug)]
@@ -575,6 +576,31 @@ impl Display for Request {
                     if params.tournament { '1' } else { '0' },
                 )?;
                 seek.opponent.iter().try_for_each(|o| o.fmt(f))
+            }
+            Self::Play(id, m) => {
+                let write_square = |f: &mut Formatter, s: Square| {
+                    write!(f, "{}{}", b'A' + s.column(), b'1' + s.row())
+                };
+
+                write!(f, "Game#{id} ")?;
+                let square = m.square();
+                write_square(f, square)?;
+
+                match m.kind() {
+                    MoveKind::Place(piece) => match piece {
+                        Piece::Flat => "",
+                        Piece::Wall => " W",
+                        Piece::Cap => " C",
+                    }
+                    .fmt(f),
+                    MoveKind::Spread(direction, pattern) => {
+                        ' '.fmt(f)?;
+                        write_square(f, square.shift(direction, pattern.count_squares() as i8))?;
+                        pattern
+                            .drop_counts()
+                            .try_for_each(|count| write!(f, " {count}"))
+                    }
+                }
             }
         }
     }
