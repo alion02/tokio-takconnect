@@ -1,5 +1,6 @@
 use std::{
     borrow::Borrow,
+    cmp::Ordering,
     collections::{HashMap, HashSet, VecDeque},
     error::Error,
     fmt::{Display, Formatter, Result as FmtResult},
@@ -9,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use takparse::Move;
+use takparse::{Direction, Move, MoveKind, Piece, Square};
 
 use futures::{
     stream::{self, SplitSink},
@@ -185,6 +186,14 @@ async fn internal_connect(
                             black_remaining,
                             last_sync: Some(Instant::now()),
                         };
+                    }
+                    Message::Play(id, m) => {
+                        active_games
+                            .get(&id)
+                            .unwrap()
+                            .0
+                            .send(GameUpdate::Played(m))
+                            .unwrap();
                     }
                     Message::GameOver(id, result) => {
                         active_games
@@ -582,6 +591,7 @@ enum Message {
     RemoveGame(u32),
     StartGame(u32),
     SyncClocks(u32, Duration, Duration),
+    Play(u32, Move),
     GameOver(u32, GameResult),
     Online(u32),
     Message(String),
@@ -654,21 +664,60 @@ impl FromStr for Message {
                 "Remove" => Message::RemoveGame(token()?.parse()?),
                 _ => Err("unexpected \"GameList\" message sub-type")?,
             },
-            "Game" => match token()? {
-                "Start" => Message::StartGame(token()?.parse()?),
-                id => {
-                    let id = id.parse()?;
-                    match token()? {
-                        "Timems" => Message::SyncClocks(
-                            id,
-                            Duration::from_millis(token()?.parse()?),
-                            Duration::from_millis(token()?.parse()?),
-                        ),
-                        "Over" => Message::GameOver(id, token()?.parse()?),
-                        _ => Err("unexpected \"Game\" message sub-type")?,
+            "Game" => {
+                match token()? {
+                    "Start" => Message::StartGame(token()?.parse()?),
+                    id => {
+                        let id = id.parse()?;
+                        match token()? {
+                            "Timems" => Message::SyncClocks(
+                                id,
+                                Duration::from_millis(token()?.parse()?),
+                                Duration::from_millis(token()?.parse()?),
+                            ),
+                            "Over" => Message::GameOver(id, token()?.parse()?),
+                            move_type @ ("P" | "M") => {
+                                let square = token()?.to_ascii_lowercase().parse()?;
+                                Message::Play(
+                                    id,
+                                    Move::new(
+                                        square,
+                                        if move_type == "P" {
+                                            MoveKind::Place(match tokens.next() {
+                                                None => Piece::Flat,
+                                                Some("W") => Piece::Wall,
+                                                Some("C") => Piece::Cap,
+                                                _ => Err("unexpected piece")?,
+                                            })
+                                        } else {
+                                            let target_square: Square =
+                                                token()?.to_ascii_lowercase().parse()?;
+                                            let direction = match (
+                                                target_square.column().cmp(&square.column()),
+                                                target_square.row().cmp(&square.row()),
+                                            ) {
+                                                (Ordering::Less, Ordering::Equal) => Direction::Left,
+                                                (Ordering::Greater, Ordering::Equal) => {
+                                                    Direction::Right
+                                                }
+                                                (Ordering::Equal, Ordering::Less) => Direction::Down,
+                                                (Ordering::Equal, Ordering::Greater) => Direction::Up,
+                                                _ => Err("start and end squares don't form a straight line")?
+                                            };
+                                            MoveKind::Spread(
+                                                direction,
+                                                tokens.collect::<String>().parse()?,
+                                            )
+                                        },
+                                    ),
+                                )
+                            }
+                            _ => Err("unexpected \"Game\" message sub-type")?,
+                        }
                     }
                 }
-            },
+            }
+
             "Online" => Message::Online(token()?.parse()?),
             "Welcome" => Message::LoggedIn(
                 rest.strip_suffix(|c| c == '!')
