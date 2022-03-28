@@ -186,6 +186,14 @@ async fn internal_connect(
                             last_sync: Some(Instant::now()),
                         };
                     }
+                    Message::GameOver(id, result) => {
+                        active_games
+                            .remove(&id)
+                            .unwrap()
+                            .0
+                            .send(GameUpdate::Ended(result))
+                            .unwrap();
+                    }
                     Message::Online(count) => debug!("Online: {count}"),
                     Message::Message(text) => debug!("Ignoring server message \"{text}\""),
                     Message::Error(text) => warn!("Ignoring error message \"{text}\""),
@@ -323,8 +331,37 @@ pub enum GameUpdate {
     Ended(GameResult),
 }
 
-#[derive(Debug)]
-pub struct GameResult;
+#[derive(Debug, PartialEq, Eq)]
+pub struct GameResult(GameResultInner);
+
+#[derive(Debug, PartialEq, Eq)]
+enum GameResultInner {
+    RoadWhite,
+    RoadBlack,
+    FlatWhite,
+    FlatBlack,
+    OtherWhite,
+    OtherBlack,
+    Draw,
+}
+
+impl FromStr for GameResult {
+    type Err = Box<dyn Error>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use GameResultInner::*;
+        Ok(Self(match s {
+            "R-0" => RoadWhite,
+            "0-R" => RoadBlack,
+            "F-0" => FlatWhite,
+            "0-F" => FlatBlack,
+            "1-0" => OtherWhite,
+            "0-1" => OtherBlack,
+            "1/2-1/2" => Draw,
+            _ => Err("malformed game result")?,
+        }))
+    }
+}
 
 #[derive(Debug)]
 pub struct ConnectionClosed;
@@ -545,6 +582,7 @@ enum Message {
     RemoveGame(u32),
     StartGame(u32),
     SyncClocks(u32, Duration, Duration),
+    GameOver(u32, GameResult),
     Online(u32),
     Message(String),
     Error(String),
@@ -626,6 +664,7 @@ impl FromStr for Message {
                             Duration::from_millis(token()?.parse()?),
                             Duration::from_millis(token()?.parse()?),
                         ),
+                        "Over" => Message::GameOver(id, token()?.parse()?),
                         _ => Err("unexpected \"Game\" message sub-type")?,
                     }
                 }
