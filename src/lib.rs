@@ -178,7 +178,7 @@ async fn internal_connect(
                             last_sync: None,
                         }));
                         active_games.insert(id, (update_tx, data.clone()));
-                        start_tx.send((update_rx, data)).unwrap();
+                        start_tx.send((update_rx, data, id)).unwrap();
                     }
                     Message::SyncClocks(id, white_remaining, black_remaining) => {
                         *active_games.get(&id).unwrap().1.lock() = ActiveGameData {
@@ -298,7 +298,11 @@ pub struct Client {
     // hi, it's past alion, remember that you don't receive moves you send
     tx: MasterSender,
     _ping_tx: Sender<()>,
-    start_rx: UnboundedReceiver<(UnboundedReceiver<GameUpdate>, Arc<Mutex<ActiveGameData>>)>,
+    start_rx: UnboundedReceiver<(
+        UnboundedReceiver<GameUpdate>,
+        Arc<Mutex<ActiveGameData>>,
+        u32,
+    )>,
 }
 
 impl Client {
@@ -307,11 +311,12 @@ impl Client {
     }
 
     pub async fn game(&mut self) -> Result<ActiveGame<'_>, Box<dyn Error + Send + Sync>> {
-        let (update_rx, data) = self.start_rx.recv().await.ok_or(ConnectionClosed)?;
+        let (update_rx, data, id) = self.start_rx.recv().await.ok_or(ConnectionClosed)?;
         Ok(ActiveGame {
             client: self,
             update_rx,
             data,
+            id,
         })
     }
 }
@@ -321,6 +326,7 @@ pub struct ActiveGame<'a> {
     client: &'a Client,
     update_rx: UnboundedReceiver<GameUpdate>,
     data: Arc<Mutex<ActiveGameData>>,
+    id: u32,
 }
 
 impl<'a> ActiveGame<'a> {
@@ -329,7 +335,7 @@ impl<'a> ActiveGame<'a> {
     }
 
     pub async fn play(&self, m: Move) -> Result<(), Box<dyn Error + Send + Sync>> {
-        todo!()
+        Request::Play(self.id, m).send(&self.client.tx)?.await
     }
 }
 
