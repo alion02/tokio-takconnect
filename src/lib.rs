@@ -594,20 +594,29 @@ impl Display for Request {
                     )
                 };
 
-                write!(f, "Game#{id} ")?;
                 let square = m.square();
-                write_square(f, square)?;
+
+                write!(f, "Game#{id} ")?;
 
                 match m.kind() {
-                    MoveKind::Place(piece) => match piece {
-                        Piece::Flat => "",
-                        Piece::Wall => " W",
-                        Piece::Cap => " C",
+                    MoveKind::Place(piece) => {
+                        "P ".fmt(f)?;
+                        write_square(f, square)?;
+
+                        match piece {
+                            Piece::Flat => "",
+                            Piece::Wall => " W",
+                            Piece::Cap => " C",
+                        }
+                        .fmt(f)
                     }
-                    .fmt(f),
                     MoveKind::Spread(direction, pattern) => {
+                        "M ".fmt(f)?;
+                        write_square(f, square)?;
+
                         ' '.fmt(f)?;
                         write_square(f, square.shift(direction, pattern.count_squares() as i8))?;
+
                         pattern
                             .drop_counts()
                             .try_for_each(|count| write!(f, " {count}"))
