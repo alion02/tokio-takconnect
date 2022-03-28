@@ -744,7 +744,7 @@ impl FromStr for Message {
                                     ),
                                 )
                             }
-                            _ => Err("unexpected \"Game\" message sub-type")?,
+                            _ => Message::Unknown(s.into()),
                         }
                     }
                 }
