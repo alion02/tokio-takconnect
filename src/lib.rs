@@ -749,7 +749,6 @@ impl FromStr for Message {
                     }
                 }
             }
-
             "Online" => Message::Online(token()?.parse()?),
             "Welcome" => Message::LoggedIn(
                 rest.strip_suffix(|c| c == '!')
