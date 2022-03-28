@@ -12,4 +12,4 @@ tokio-tungstenite = { version = "0.17", features = ["native-tls"] }
 parking_lot = "0.12"
 rand = "0.8"
 log = "0.4"
-takparse = "0.5.1"
+takparse = "0.5.2"
