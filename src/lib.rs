@@ -78,6 +78,7 @@ async fn internal_connect(
             spawn(async move {
                 while let Some(request) = rx.recv().await {
                     let s = request.0.to_string();
+                    debug!("Sending \"{s}\"");
                     {
                         let mut queue = queue.lock();
                         let backlog = queue.len();
@@ -585,7 +586,12 @@ impl Display for Request {
             }
             Self::Play(id, m) => {
                 let write_square = |f: &mut Formatter, s: Square| {
-                    write!(f, "{}{}", b'A' + s.column(), b'1' + s.row())
+                    write!(
+                        f,
+                        "{}{}",
+                        (b'A' + s.column()) as char,
+                        (b'1' + s.row()) as char
+                    )
                 };
 
                 write!(f, "Game#{id} ")?;
