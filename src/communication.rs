@@ -65,9 +65,9 @@ impl Display for Request {
                     params.initial_time.as_secs(),
                     params.increment.as_secs(),
                     match seek.color {
-                        Color::Any => 'A',
-                        Color::White => 'W',
-                        Color::Black => 'B',
+                        None => 'A',
+                        Some(Color::White) => 'W',
+                        Some(Color::Black) => 'B',
                     },
                     params.half_komi,
                     params.flat_count,
@@ -160,9 +160,9 @@ impl FromStr for Message {
                         let increment = Duration::from_secs(token()?.parse()?);
                         SeekParameters {
                             color: match token()? {
-                                "A" => Color::Any,
-                                "W" => Color::White,
-                                "B" => Color::Black,
+                                "A" => None,
+                                "W" => Some(Color::White),
+                                "B" => Some(Color::Black),
                                 _ => Err("unknown color")?,
                             },
                             params: GameParameters {

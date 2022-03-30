@@ -43,14 +43,14 @@ impl Borrow<u32> for Seek {
 #[derive(Debug, Clone)]
 pub struct SeekParameters {
     pub(crate) opponent: Option<String>,
-    pub(crate) color: Color,
+    pub(crate) color: Option<Color>,
     pub(crate) params: GameParameters,
 }
 
 impl SeekParameters {
     pub fn new(
         opponent: Option<String>,
-        color: Color,
+        color: Option<Color>,
         params: GameParameters,
     ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
@@ -137,7 +137,6 @@ impl GameParameters {
 
 #[derive(Debug, Clone)]
 pub enum Color {
-    Any,
     White,
     Black,
 }
