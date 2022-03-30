@@ -158,6 +158,10 @@ impl ActiveGame {
         todo!()
         // Request::Play(self.id, m).send(&self.client.tx)?.await
     }
+
+    pub fn clock(&self) -> Clock {
+        todo!()
+    }
 }
 
 #[non_exhaustive]
@@ -216,3 +220,16 @@ impl Display for ConnectionClosed {
 }
 
 impl Error for ConnectionClosed {}
+
+#[derive(Debug)]
+pub struct Clock;
+
+impl Clock {
+    pub fn my_time(&self) -> Duration {
+        todo!()
+    }
+
+    pub fn opp_time(&self) -> Duration {
+        todo!()
+    }
+}
