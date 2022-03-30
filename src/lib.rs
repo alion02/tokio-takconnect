@@ -285,6 +285,8 @@ async fn internal_connect(
         tx,
         _ping_tx,
         start_rx,
+        data: todo!(),
+        username: todo!(),
     })
 }
 
@@ -299,6 +301,8 @@ pub struct Client {
         Arc<Mutex<ActiveGameData>>,
         u32,
     )>,
+    data: Arc<ClientData>,
+    username: String,
 }
 
 impl Client {
@@ -306,10 +310,9 @@ impl Client {
         Request::Seek(seek).send(&self.tx)?.await
     }
 
-    pub async fn game(&mut self) -> Result<ActiveGame<'_>, Box<dyn Error + Send + Sync>> {
+    pub async fn game(&mut self) -> Result<ActiveGame, Box<dyn Error + Send + Sync>> {
         let (update_rx, data, id) = self.start_rx.recv().await.ok_or(ConnectionClosed)?;
         Ok(ActiveGame {
-            client: self,
             update_rx,
             data,
             id,
@@ -318,20 +321,37 @@ impl Client {
 }
 
 #[derive(Debug)]
-pub struct ActiveGame<'a> {
-    client: &'a Client,
+struct ClientData {
+    seeks: Mutex<HashSet<Seek>>,
+    games: Mutex<HashSet<Game>>,
+    active_games: Mutex<HashSet<ActiveGame>>,
+}
+
+impl ClientData {
+    fn new() -> Self {
+        Self {
+            seeks: Mutex::default(),
+            games: Mutex::default(),
+            active_games: Mutex::default(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ActiveGame {
     update_rx: UnboundedReceiver<GameUpdate>,
     data: Arc<Mutex<ActiveGameData>>,
     id: u32,
 }
 
-impl<'a> ActiveGame<'a> {
+impl ActiveGame {
     pub async fn update(&mut self) -> Result<GameUpdate, Box<dyn Error + Send + Sync>> {
         Ok(self.update_rx.recv().await.ok_or(ConnectionClosed)?)
     }
 
     pub async fn play(&self, m: Move) -> Result<(), Box<dyn Error + Send + Sync>> {
-        Request::Play(self.id, m).send(&self.client.tx)?.await
+        todo!()
+        // Request::Play(self.id, m).send(&self.client.tx)?.await
     }
 }
 
