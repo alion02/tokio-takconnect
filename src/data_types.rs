@@ -199,6 +199,13 @@ impl FromStr for GameResult {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ActiveGameData {
+    pub(crate) white_remaining: Duration,
+    pub(crate) black_remaining: Duration,
+    pub(crate) last_sync: Option<Instant>,
+}
+
 #[derive(Debug)]
 pub(crate) struct ConnectionClosed;
 
@@ -209,10 +216,3 @@ impl Display for ConnectionClosed {
 }
 
 impl Error for ConnectionClosed {}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ActiveGameData {
-    pub(crate) white_remaining: Duration,
-    pub(crate) black_remaining: Duration,
-    pub(crate) last_sync: Option<Instant>,
-}
