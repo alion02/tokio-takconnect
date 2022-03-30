@@ -20,6 +20,20 @@ pub struct Seek {
     pub(crate) params: SeekParameters,
 }
 
+impl Seek {
+    /// The name of the owner of the seek.
+    #[must_use]
+    pub fn owner(&self) -> &str {
+        self.owner.as_ref()
+    }
+
+    /// The parameters of the seek.
+    #[must_use]
+    pub fn params(&self) -> &SeekParameters {
+        &self.params
+    }
+}
+
 impl PartialEq for Seek {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
@@ -59,6 +73,24 @@ impl SeekParameters {
             params,
         })
     }
+
+    /// The name of the opponent if the seek is private.
+    #[must_use]
+    pub fn opponent(&self) -> Option<&str> {
+        self.opponent.as_ref().map(String::as_str)
+    }
+
+    /// The seek color if it's not random.
+    #[must_use]
+    pub fn color(&self) -> Option<Color> {
+        self.color
+    }
+
+    /// The game parameters of the seek.
+    #[must_use]
+    pub fn params(&self) -> &GameParameters {
+        &self.params
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +99,26 @@ pub struct Game {
     pub(crate) white: String,
     pub(crate) black: String,
     pub(crate) params: GameParameters,
+}
+
+impl Game {
+    /// The name of the white player.
+    #[must_use]
+    pub fn white(&self) -> &str {
+        self.white.as_ref()
+    }
+
+    /// The name of the black player.
+    #[must_use]
+    pub fn black(&self) -> &str {
+        self.black.as_ref()
+    }
+
+    /// The parameters of the game.
+    #[must_use]
+    pub fn params(&self) -> &GameParameters {
+        &self.params
+    }
 }
 
 impl PartialEq for Game {
@@ -97,7 +149,7 @@ pub struct GameParameters {
     pub(crate) half_komi: i32,
     pub(crate) flat_count: u32,
     pub(crate) cap_count: u32,
-    pub(crate) unrated: bool,
+    pub(crate) rated: bool,
     pub(crate) tournament: bool,
 }
 
@@ -109,7 +161,7 @@ impl GameParameters {
         half_komi: i32,
         flat_count: u32,
         cap_count: u32,
-        unrated: bool,
+        rated: bool,
         tournament: bool,
     ) -> Result<Self, Box<dyn Error>> {
         if size > 8
@@ -128,14 +180,63 @@ impl GameParameters {
                 half_komi,
                 flat_count,
                 cap_count,
-                unrated,
+                rated,
                 tournament,
             })
         }
     }
+
+    /// The board size.
+    #[must_use]
+    pub fn size(&self) -> u32 {
+        self.size
+    }
+
+    /// The initial amount of time each player starts with.
+    #[must_use]
+    pub fn initial_time(&self) -> Duration {
+        self.initial_time
+    }
+
+    /// The amount of time each player gets whenever they make a move.
+    #[must_use]
+    pub fn increment(&self) -> Duration {
+        self.increment
+    }
+
+    /// The halved number of flats the black player gets on top of their flat count at the end of the game.
+    /// That is, a value of `4` means the black player gets two flats added, `5` means two and a half and so on.
+    #[must_use]
+    pub fn half_komi(&self) -> i32 {
+        self.half_komi
+    }
+
+    /// The initial number of flatstones each player has.
+    #[must_use]
+    pub fn flat_count(&self) -> u32 {
+        self.flat_count
+    }
+
+    /// The initial number of capstones each player has.
+    #[must_use]
+    pub fn cap_count(&self) -> u32 {
+        self.cap_count
+    }
+
+    /// Whether the game may count for rating points. Games where at least one player is a guest ignore this and are always unrated.
+    #[must_use]
+    pub fn rated(&self) -> bool {
+        self.rated
+    }
+
+    /// Whether this is a tournament game. Tournament games are marked as such in match history, and also allow more time to reconnect.
+    #[must_use]
+    pub fn tournament(&self) -> bool {
+        self.tournament
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Color {
     White,
     Black,
@@ -160,6 +261,12 @@ impl ActiveGame {
 
     pub fn clock(&self) -> Clock {
         todo!()
+    }
+
+    /// The underlying game this active game represents.
+    #[must_use]
+    pub fn game(&self) -> &Game {
+        &self.game
     }
 }
 

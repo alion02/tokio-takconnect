@@ -72,7 +72,7 @@ impl Display for Request {
                     params.half_komi,
                     params.flat_count,
                     params.cap_count,
-                    if params.unrated { '1' } else { '0' },
+                    if params.rated { '0' } else { '1' },
                     if params.tournament { '1' } else { '0' },
                 )?;
                 seek.opponent.iter().try_for_each(|o| o.fmt(f))
@@ -172,7 +172,7 @@ impl FromStr for Message {
                                 half_komi: token()?.parse()?,
                                 flat_count: token()?.parse()?,
                                 cap_count: token()?.parse()?,
-                                unrated: token()? == "1",
+                                rated: token()? == "0",
                                 tournament: token()? == "1",
                             },
                             opponent: match token()? {
@@ -197,7 +197,7 @@ impl FromStr for Message {
                         half_komi: token()?.parse()?,
                         flat_count: token()?.parse()?,
                         cap_count: token()?.parse()?,
-                        unrated: token()? == "1",
+                        rated: token()? == "0",
                         tournament: token()? == "1",
                     },
                 }),
