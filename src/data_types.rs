@@ -16,7 +16,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 #[derive(Debug)]
 pub struct Seek {
     pub(crate) id: u32,
-    pub(crate) seeker: String,
+    pub(crate) owner: String,
     pub(crate) params: SeekParameters,
 }
 

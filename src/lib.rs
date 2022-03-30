@@ -111,7 +111,7 @@ async fn internal_connect(
                                 username = Some(name);
                                 (Some(Ok(())), None)
                             }
-                            Message::AddSeek(ref seek) if is_me(&seek.seeker) => {
+                            Message::AddSeek(ref seek) if is_me(&seek.owner) => {
                                 (Some(Ok(())), Some(message))
                             }
                             // Message::RemoveSeek(id)

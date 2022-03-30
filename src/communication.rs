@@ -153,7 +153,7 @@ impl FromStr for Message {
             "Seek" => match token()? {
                 "new" => Message::AddSeek(Seek {
                     id: token()?.parse()?,
-                    seeker: token()?.into(),
+                    owner: token()?.into(),
                     params: {
                         let size = token()?.parse()?;
                         let initial_time = Duration::from_secs(token()?.parse()?);
