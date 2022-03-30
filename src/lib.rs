@@ -1,8 +1,8 @@
 mod communication;
-mod data_types;
+pub mod data_types;
 
 use communication::*;
-pub use data_types::*;
+use data_types::*;
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
