@@ -172,7 +172,9 @@ async fn internal_connect(
                             last_sync: None,
                         }));
                         active_games.insert(id, (update_tx, data.clone()));
-                        start_tx.send((update_rx, data, id)).unwrap();
+                        start_tx
+                            .send((update_rx, data, games.get(&id).unwrap().clone()))
+                            .unwrap();
                     }
                     Message::SyncClocks(id, white_remaining, black_remaining) => {
                         *active_games.get(&id).unwrap().1.lock() = ActiveGameData {
@@ -294,7 +296,7 @@ pub struct Client {
     start_rx: UnboundedReceiver<(
         UnboundedReceiver<GameUpdate>,
         Arc<Mutex<ActiveGameData>>,
-        u32,
+        Game,
     )>,
     data: Arc<ClientData>,
     username: String,
@@ -306,11 +308,11 @@ impl Client {
     }
 
     pub async fn game(&mut self) -> Result<ActiveGame, Box<dyn Error + Send + Sync>> {
-        let (update_rx, data, id) = self.start_rx.recv().await.ok_or(ConnectionClosed)?;
+        let (update_rx, data, game) = self.start_rx.recv().await.ok_or(ConnectionClosed)?;
         Ok(ActiveGame {
             update_rx,
             data,
-            id,
+            game,
         })
     }
 }

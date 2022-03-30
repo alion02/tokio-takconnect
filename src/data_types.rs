@@ -13,7 +13,7 @@ use takparse::Move;
 use parking_lot::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Seek {
     pub(crate) id: u32,
     pub(crate) owner: String,
@@ -40,7 +40,7 @@ impl Borrow<u32> for Seek {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SeekParameters {
     pub(crate) opponent: Option<String>,
     pub(crate) color: Color,
@@ -61,7 +61,7 @@ impl SeekParameters {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Game {
     pub(crate) id: u32,
     pub(crate) white: String,
@@ -89,7 +89,7 @@ impl Borrow<u32> for Game {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GameParameters {
     pub(crate) size: u32,
     pub(crate) initial_time: Duration,
@@ -135,7 +135,7 @@ impl GameParameters {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Color {
     Any,
     White,
@@ -146,7 +146,7 @@ pub enum Color {
 pub struct ActiveGame {
     pub(crate) update_rx: UnboundedReceiver<GameUpdate>,
     pub(crate) data: Arc<Mutex<ActiveGameData>>,
-    pub(crate) id: u32,
+    pub(crate) game: Game,
 }
 
 impl ActiveGame {
@@ -161,16 +161,16 @@ impl ActiveGame {
 }
 
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum GameUpdate {
     Played(Move),
     Ended(GameResult),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameResult(GameResultInner);
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum GameResultInner {
     RoadWhite,
     RoadBlack,
@@ -210,7 +210,7 @@ impl Display for ConnectionClosed {
 
 impl Error for ConnectionClosed {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct ActiveGameData {
     pub(crate) white_remaining: Duration,
     pub(crate) black_remaining: Duration,
