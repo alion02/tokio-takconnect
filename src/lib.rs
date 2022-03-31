@@ -16,7 +16,7 @@ use futures::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use tokio::{
     join, select, spawn,
-    sync::mpsc::{unbounded_channel, UnboundedReceiver},
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     time::interval,
 };
 use tokio_tungstenite::connect_async;
@@ -53,6 +53,8 @@ async fn internal_connect(
 ) -> Result<Client, Box<dyn Error>> {
     let (tx, mut rx) = unbounded_channel::<SentRequest>();
     let (start_tx, start_rx) = unbounded_channel();
+
+    let data = Arc::new(ClientData::default());
 
     {
         info!("Establishing WebSocket Secure connnection to Playtak server");
@@ -107,11 +109,13 @@ async fn internal_connect(
                 stream.0.close().await.unwrap();
             });
         }
-        spawn(async move {
-            let mut seeks = HashSet::<Seek>::new();
-            let mut games = HashSet::<Game>::new();
 
-            let mut active_games = HashMap::new();
+        let data = data.clone();
+        spawn(async move {
+            let mut active_games: HashMap<
+                u32,
+                (UnboundedSender<GameUpdate>, Arc<Mutex<ActiveGameData>>),
+            > = Default::default();
 
             let mut username = None;
 
@@ -162,39 +166,43 @@ async fn internal_connect(
                     }
                     Message::AddSeek(seek) => {
                         debug!("Adding {seek:?}");
-                        if !seeks.insert(seek) {
+                        if !data.seeks.lock().insert(seek) {
                             error!("Seek ID collision detected")
                         }
                     }
                     Message::RemoveSeek(id) => {
                         debug!("Removing seek {id}");
-                        if !seeks.remove(&id) {
+                        if !data.seeks.lock().remove(&id) {
                             error!("Attempted to remove nonexistent seek")
                         }
                     }
                     Message::AddGame(game) => {
                         debug!("Adding {game:?}");
-                        if !games.insert(game) {
+                        if !data.games.lock().insert(game) {
                             error!("Game ID collision detected")
                         }
                     }
                     Message::RemoveGame(id) => {
                         debug!("Removing game {id}");
-                        if !games.remove(&id) {
+                        if !data.games.lock().remove(&id) {
                             error!("Attempted to remove nonexistent game")
                         }
                     }
                     Message::StartGame(id) => {
                         let (update_tx, update_rx) = unbounded_channel();
-                        let initial_time = games.get(&id).unwrap().params.initial_time;
-                        let data = Arc::new(Mutex::new(ActiveGameData {
+                        let initial_time = data.games.lock().get(&id).unwrap().params.initial_time;
+                        let active_game_data = Arc::new(Mutex::new(ActiveGameData {
                             white_remaining: initial_time,
                             black_remaining: initial_time,
                             last_sync: None,
                         }));
-                        active_games.insert(id, (update_tx, data.clone()));
+                        active_games.insert(id, (update_tx, active_game_data.clone()));
                         start_tx
-                            .send((update_rx, data, games.get(&id).unwrap().clone()))
+                            .send((
+                                update_rx,
+                                active_game_data,
+                                data.games.lock().get(&id).unwrap().clone(),
+                            ))
                             .unwrap();
                     }
                     Message::SyncClocks(id, white_remaining, black_remaining) => {
@@ -276,7 +284,7 @@ async fn internal_connect(
     Ok(Client {
         tx,
         start_rx,
-        data: todo!(),
+        data,
         username: todo!(),
     })
 }
@@ -312,15 +320,13 @@ impl Client {
 struct ClientData {
     seeks: Mutex<HashSet<Seek>>,
     games: Mutex<HashSet<Game>>,
-    active_games: Mutex<HashSet<ActiveGame>>,
 }
 
-impl ClientData {
-    fn new() -> Self {
+impl Default for ClientData {
+    fn default() -> Self {
         Self {
-            seeks: Mutex::default(),
-            games: Mutex::default(),
-            active_games: Mutex::default(),
+            seeks: Default::default(),
+            games: Default::default(),
         }
     }
 }
