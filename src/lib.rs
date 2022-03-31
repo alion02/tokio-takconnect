@@ -107,6 +107,7 @@ async fn internal_connect(
                         let (response, returned) = match message {
                             Message::Ok => (Some(Ok(())), None),
                             Message::NotOk => (Some(Err("Rejected".into())), None),
+                            Message::Error(e) => (Some(Err(e.into())), None),
                             Message::LoggedIn(name) => {
                                 username = Some(name);
                                 (Some(Ok(())), None)
