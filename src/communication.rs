@@ -14,7 +14,7 @@ use futures::Future;
 
 use tokio::sync::{
     mpsc::UnboundedSender,
-    oneshot::{channel, Sender},
+    oneshot::{channel, Receiver, Sender},
 };
 
 pub type MasterSender = UnboundedSender<SentRequest>;
@@ -43,9 +43,19 @@ impl Request {
         impl Future<Output = Result<(), Box<dyn Error + Send + Sync>>>,
         Box<dyn Error + Send + Sync>,
     > {
+        let (r, rx) = self.package();
+        tx.send(r)?;
+        Ok(async move { rx.await? })
+    }
+
+    pub fn package(
+        self,
+    ) -> (
+        SentRequest,
+        Receiver<Result<(), Box<dyn Error + Send + Sync>>>,
+    ) {
         let c = channel();
-        tx.send(SentRequest(self, c.0))?;
-        Ok(async move { c.1.await? })
+        (SentRequest(self, c.0), c.1)
     }
 }
 

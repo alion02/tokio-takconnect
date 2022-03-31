@@ -16,10 +16,7 @@ use futures::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use tokio::{
     join, select, spawn,
-    sync::{
-        mpsc::{unbounded_channel, UnboundedReceiver},
-        oneshot::{channel, Sender},
-    },
+    sync::mpsc::{unbounded_channel, UnboundedReceiver},
     time::interval,
 };
 use tokio_tungstenite::connect_async;
@@ -69,7 +66,30 @@ async fn internal_connect(
         {
             let queue = queue.clone();
             spawn(async move {
-                while let Some(request) = rx.recv().await {
+                let mut interval = interval(ping_interval);
+                loop {
+                    let request;
+                    select! {
+                        maybe_request = rx.recv() => {
+                            if let Some(sent_request) = maybe_request {
+                                request = sent_request;
+                            } else {
+                                break;
+                            }
+                        }
+                        time = interval.tick() => {
+                            let (r, rx) = Request::Ping.package();
+                            request = r;
+                            spawn(async move {
+                                if rx.await.is_err() {
+                                    warn!("Ping failed");
+                                } else {
+                                    debug!("Ping: {}ms", time.elapsed().as_millis());
+                                }
+                            });
+                        }
+                    };
+
                     let s = request.0.to_string();
                     debug!("Sending \"{s}\"");
                     {
@@ -211,8 +231,6 @@ async fn internal_connect(
         });
     }
 
-    let (_ping_tx, mut ping_rx) = channel::<()>();
-
     info!(
         "Logging in as {}",
         if pseudo_username == "Guest" {
@@ -253,37 +271,10 @@ async fn internal_connect(
 
     info!("Pinging every {ping_interval:?}");
 
-    {
-        let tx = tx.clone();
-        spawn(async move {
-            let mut interval = interval(ping_interval);
-            loop {
-                select! {
-                    biased;
-                    _ = &mut ping_rx => {
-                        break;
-                    }
-                    _ = interval.tick() => {
-                        let time = Instant::now();
-                        let rx = Request::Ping.send(&tx).unwrap();
-                        spawn(async move {
-                            if rx.await.is_err() {
-                                warn!("Ping failed");
-                            } else {
-                                debug!("Ping: {}ms", time.elapsed().as_millis());
-                            }
-                        });
-                    }
-                }
-            }
-        });
-    }
-
     info!("Client ready");
 
     Ok(Client {
         tx,
-        _ping_tx,
         start_rx,
         data: todo!(),
         username: todo!(),
@@ -293,7 +284,6 @@ async fn internal_connect(
 #[derive(Debug)]
 pub struct Client {
     tx: MasterSender,
-    _ping_tx: Sender<()>,
     start_rx: UnboundedReceiver<(
         UnboundedReceiver<GameUpdate>,
         Arc<Mutex<ActiveGameData>>,
