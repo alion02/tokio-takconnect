@@ -281,12 +281,7 @@ async fn internal_connect(
 
     info!("Client ready");
 
-    Ok(Client {
-        tx,
-        start_rx,
-        data,
-        username: todo!(),
-    })
+    Ok(Client { tx, start_rx, data })
 }
 
 #[derive(Debug)]
@@ -298,7 +293,6 @@ pub struct Client {
         Game,
     )>,
     data: Arc<ClientData>,
-    username: String,
 }
 
 impl Client {
