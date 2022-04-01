@@ -716,7 +716,7 @@ impl FromStr for Message {
                                 Duration::from_millis(token()?.parse()?),
                             ),
                             "Over" => Message::GameOver(id, token()?.parse()?),
-                            "Abandoned" => {
+                            "Abandoned." => {
                                 Message::GameOver(id, GameResult(GameResultInner::OtherDecisive))
                             }
                             move_type @ ("P" | "M") => {
