@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use takparse::{Direction, Move, MoveKind, Piece, Square};
+use takparse::{Color, Direction, Move, MoveKind, Piece, Square};
 
 use futures::Future;
 

@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use takparse::Move;
+use takparse::{Color, Move};
 
 use parking_lot::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -234,12 +234,6 @@ impl GameParameters {
     pub fn tournament(&self) -> bool {
         self.tournament
     }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum Color {
-    White,
-    Black,
 }
 
 #[derive(Debug)]
