@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use takparse::{Color, Move};
+pub use takparse::{Color, Move};
 
 use parking_lot::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
