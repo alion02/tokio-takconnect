@@ -25,7 +25,7 @@ pub enum Request {
     Protocol(u32),
     Login(String, String),
     Ping,
-    Seek(crate::SeekParameters),
+    Seek(SeekParameters),
     Play(u32, Move),
 }
 
