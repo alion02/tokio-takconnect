@@ -223,7 +223,9 @@ impl GameParameters {
         self.cap_count
     }
 
-    /// Whether the game may count for rating points. Games where at least one player is a guest ignore this and are always unrated.
+    /// Whether the game may count for rating points.
+    /// Games where at least one player is a guest ignore this and are always unrated.
+    /// Additionally, some game parameters may affect whether a game is rated.
     #[must_use]
     pub fn rated(&self) -> bool {
         self.rated
