@@ -114,7 +114,7 @@ async fn internal_connect(
         spawn(async move {
             let mut active_games: HashMap<
                 u32,
-                (UnboundedSender<GameUpdate>, Arc<Mutex<ActiveGameData>>),
+                (UnboundedSender<Update>, Arc<Mutex<ActiveGameData>>),
             > = Default::default();
 
             let mut username = None;
@@ -217,7 +217,7 @@ async fn internal_connect(
                             .get(&id)
                             .unwrap()
                             .0
-                            .send(GameUpdate::Played(m))
+                            .send(Update::Played(m))
                             .unwrap();
                     }
                     Message::GameOver(id, result) => {
@@ -225,7 +225,7 @@ async fn internal_connect(
                             .remove(&id)
                             .unwrap()
                             .0
-                            .send(GameUpdate::Ended(result))
+                            .send(Update::GameEnded(result))
                             .unwrap();
                     }
                     Message::Online(count) => debug!("Online: {count}"),
@@ -287,11 +287,7 @@ async fn internal_connect(
 #[derive(Debug)]
 pub struct Client {
     tx: MasterSender,
-    start_rx: UnboundedReceiver<(
-        UnboundedReceiver<GameUpdate>,
-        Arc<Mutex<ActiveGameData>>,
-        Game,
-    )>,
+    start_rx: UnboundedReceiver<(UnboundedReceiver<Update>, Arc<Mutex<ActiveGameData>>, Game)>,
     data: Arc<ClientData>,
 }
 

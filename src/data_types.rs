@@ -13,6 +13,8 @@ pub use takparse::{Color, Move};
 use parking_lot::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
 
+use crate::communication::MasterSender;
+
 #[derive(Debug, Clone)]
 pub struct Seek {
     pub(crate) id: u32,
@@ -240,13 +242,13 @@ impl GameParameters {
 
 #[derive(Debug)]
 pub struct ActiveGame {
-    pub(crate) update_rx: UnboundedReceiver<GameUpdate>,
+    pub(crate) update_rx: UnboundedReceiver<Update>,
     pub(crate) data: Arc<Mutex<ActiveGameData>>,
     pub(crate) game: Game,
 }
 
 impl ActiveGame {
-    pub async fn update(&mut self) -> Result<GameUpdate, Box<dyn Error + Send + Sync>> {
+    pub async fn update(&mut self) -> Result<Update, Box<dyn Error + Send + Sync>> {
         Ok(self.update_rx.recv().await.ok_or(ConnectionClosed)?)
     }
 
@@ -268,9 +270,10 @@ impl ActiveGame {
 
 #[non_exhaustive]
 #[derive(Debug, Clone)]
-pub enum GameUpdate {
+pub enum Update {
     Played(Move),
-    Ended(GameResult),
+    TurnStarted(Color),
+    GameEnded(GameResult),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
