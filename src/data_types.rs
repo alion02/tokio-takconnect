@@ -242,6 +242,7 @@ impl GameParameters {
 
 #[derive(Debug)]
 pub struct ActiveGame {
+    pub(crate) tx: MasterSender,
     pub(crate) update_rx: UnboundedReceiver<Update>,
     pub(crate) data: Arc<Mutex<ActiveGameData>>,
     pub(crate) game: Game,

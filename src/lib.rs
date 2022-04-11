@@ -299,6 +299,7 @@ impl Client {
     pub async fn game(&mut self) -> Result<ActiveGame, Box<dyn Error + Send + Sync>> {
         let (update_rx, data, game) = self.start_rx.recv().await.ok_or(ConnectionClosed)?;
         Ok(ActiveGame {
+            tx: self.tx.clone(),
             update_rx,
             data,
             game,
