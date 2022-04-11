@@ -13,7 +13,7 @@ pub use takparse::{Color, Move};
 use parking_lot::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::communication::MasterSender;
+use crate::communication::{MasterSender, Request};
 
 #[derive(Debug, Clone)]
 pub struct Seek {
@@ -254,8 +254,7 @@ impl ActiveGame {
     }
 
     pub async fn play(&self, m: Move) -> Result<(), Box<dyn Error + Send + Sync>> {
-        todo!()
-        // Request::Play(self.id, m).send(&self.client.tx)?.await
+        Request::Play(self.game.id, m).send(&self.tx)?.await
     }
 
     pub fn clock(&self) -> Clock {
