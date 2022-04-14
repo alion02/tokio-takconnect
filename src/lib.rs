@@ -47,7 +47,7 @@ pub async fn connect_as(username: String, password: String) -> Result<Client, Bo
 }
 
 async fn connect(id: String, token: String) -> Result<Client, Box<dyn Error>> {
-    internal_connect(id, token, "unknown", true, Duration::from_millis(2_000)).await
+    internal_connect(id, token, "unknown", true, Duration::from_millis(30_000)).await
 }
 
 async fn internal_connect(
