@@ -283,16 +283,17 @@ pub enum Update {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GameResult(GameResultInner);
+pub struct GameResult(pub(crate) GameResultInner);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum GameResultInner {
+pub(crate) enum GameResultInner {
     RoadWhite,
     RoadBlack,
     FlatWhite,
     FlatBlack,
     OtherWhite,
     OtherBlack,
+    OtherDecisive,
     Draw,
 }
 
