@@ -116,6 +116,12 @@ impl Game {
         self.black.as_ref()
     }
 
+    /// The Playtak ID of the game.
+    #[must_use]
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+
     /// The parameters of the game.
     #[must_use]
     pub fn params(&self) -> &GameParameters {
