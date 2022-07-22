@@ -282,36 +282,44 @@ pub enum Update {
     GameEnded(GameResult),
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GameResult(pub(crate) GameResultInner);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum GameResultInner {
-    RoadWhite,
-    RoadBlack,
-    FlatWhite,
-    FlatBlack,
-    OtherWhite,
-    OtherBlack,
-    OtherDecisive,
-    Draw,
+pub enum GameResult {
+    Win(Color, WinReason),
+    Draw(DrawReason),
+    Unknown,
 }
+
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WinReason {
+    Road,
+    Flat,
+    Forfeit,
+}
+
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DrawReason;
 
 impl FromStr for GameResult {
     type Err = Box<dyn Error>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use GameResultInner::*;
-        Ok(Self(match s {
-            "R-0" => RoadWhite,
-            "0-R" => RoadBlack,
-            "F-0" => FlatWhite,
-            "0-F" => FlatBlack,
-            "1-0" => OtherWhite,
-            "0-1" => OtherBlack,
-            "1/2-1/2" => Draw,
+        use Color::*;
+        use GameResult::*;
+        use WinReason::*;
+
+        Ok(match s {
+            "R-0" => Win(White, Road),
+            "0-R" => Win(Black, Road),
+            "F-0" => Win(White, Flat),
+            "0-F" => Win(Black, Flat),
+            "1-0" => Win(White, Forfeit),
+            "0-1" => Win(Black, Forfeit),
+            "1/2-1/2" => Draw(DrawReason),
             _ => Err("malformed game result")?,
-        }))
+        })
     }
 }
 
