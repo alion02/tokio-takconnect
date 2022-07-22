@@ -315,6 +315,43 @@ impl FromStr for GameResult {
     }
 }
 
+impl GameResult {
+    pub fn is_win(&self) -> bool {
+        use GameResultInner::*;
+        match self.0 {
+            RoadWhite | RoadBlack | FlatWhite | FlatBlack | OtherWhite | OtherBlack
+            | OtherDecisive => true,
+            Draw => false,
+        }
+    }
+
+    pub fn is_road(&self) -> bool {
+        use GameResultInner::*;
+        match self.0 {
+            RoadWhite | RoadBlack => true,
+            FlatWhite | FlatBlack | OtherWhite | OtherBlack | OtherDecisive | Draw => false,
+        }
+    }
+
+    pub fn is_flat(&self) -> bool {
+        use GameResultInner::*;
+        match self.0 {
+            FlatWhite | FlatBlack => true,
+            RoadWhite | RoadBlack | OtherWhite | OtherBlack | OtherDecisive | Draw => false,
+        }
+    }
+
+    pub fn winner(&self) -> Option<Color> {
+        use Color::*;
+        use GameResultInner::*;
+        match self.0 {
+            RoadWhite | FlatWhite | OtherWhite => Some(White),
+            RoadBlack | FlatBlack | OtherBlack => Some(Black),
+            OtherDecisive | Draw => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveGameData {
     pub(crate) white_remaining: Duration,
